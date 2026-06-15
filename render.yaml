@@ -1,0 +1,44 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy: Render Dashboard → New → Blueprint → connect this repo.
+# Render reads this file, provisions the service + disk, and prompts for the
+# env vars marked `sync: false`.
+services:
+  - type: web
+    name: edgewise
+    runtime: node
+    plan: starter            # Starter ($7/mo) or higher — the free plan has NO
+                             # persistent disk, so SQLite data would be wiped.
+    buildCommand: npm ci
+    startCommand: node server.js
+    healthCheckPath: /
+    disk:
+      name: edgewise-data
+      mountPath: /data       # must match DATA_DIR below
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production     # turns on Secure cookies, HSTS, HTTPS redirect
+      - key: DATA_DIR
+        value: /data          # SQLite lives on the persistent disk
+      - key: JWT_SECRET
+        generateValue: true   # Render generates a strong secret (never in a file)
+      - key: ADMIN_EMAIL
+        sync: false           # set in dashboard
+      - key: ADMIN_PASSWORD
+        sync: false           # set in dashboard — pick a strong one you'll keep
+      - key: APP_URL
+        sync: false           # set to your https://<service>.onrender.com URL
+      - key: ANTHROPIC_API_KEY
+        sync: false           # optional — enables AI weekly debrief
+      - key: SMTP_HOST
+        sync: false           # optional — required for real password-reset emails
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false

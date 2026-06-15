@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Journal — Edgewise</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+
+<!-- email verification banner (hidden by default) -->
+<div class="verify-banner" id="verifyBanner" style="display:none">
+  <span>Verify your email to secure your account — check your inbox.</span>
+  <button id="resendVerify">Resend link</button>
+</div>
+
+<header class="nav">
+  <div class="nav__inner">
+    <a class="brand" href="/" aria-label="Edgewise home">
+      <svg viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect x="1" y="1" width="24" height="24" stroke="#101019" stroke-width="2"/><path d="M4 19 L10 12 L14 15 L22 5" stroke="#2323E6" stroke-width="2.4" fill="none"/><circle cx="22" cy="5" r="2.4" fill="#2323E6"/></svg>
+      Edgewise
+    </a>
+    <nav class="nav__right" aria-label="Account">
+      <span class="nav__user" id="navUser"></span>
+      <a href="/api/trades/export.csv" id="exportLink">Export CSV</a>
+      <a href="/admin" id="adminLink" style="display:none">Admin</a>
+      <button id="logoutBtn">Log out</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="page-head">
+    <div>
+      <p class="mono">Journal — live session</p>
+      <h1 class="display">The log.</h1>
+    </div>
+    <p class="mono" id="tradeCount"></p>
+  </div>
+
+  <!-- stats (6 cells: net, win rate, expectancy, drawdown, profit factor, streak) -->
+  <div class="stat-grid" id="statGrid">
+    <div class="stat-cell"><span class="mono">Net P&amp;L</span><strong id="sNet">—</strong></div>
+    <div class="stat-cell"><span class="mono">Win rate</span><strong id="sWin">—</strong></div>
+    <div class="stat-cell"><span class="mono">Expectancy</span><strong id="sExp">—</strong></div>
+    <div class="stat-cell"><span class="mono">Max drawdown</span><strong id="sDd">—</strong></div>
+    <div class="stat-cell"><span class="mono">Profit factor</span><strong id="sPf">—</strong></div>
+    <div class="stat-cell"><span class="mono">Streak</span><strong id="sStr">—</strong></div>
+  </div>
+
+  <!-- weekly debrief -->
+  <section class="panel">
+    <div class="panel__head"><span>Weekly debrief — last 7 days</span><span class="mono" id="debriefMeta"></span></div>
+    <div class="panel__body" id="debriefBody"><div class="empty">Loading…</div></div>
+  </section>
+
+  <!-- equity curve -->
+  <section class="panel">
+    <div class="panel__head"><span>Equity curve — cumulative R</span><span class="mono" id="curveNote"></span></div>
+    <div class="panel__body">
+      <div class="curve-wrap"><canvas id="curve" role="img" aria-label="Cumulative R equity curve"></canvas></div>
+      <div class="empty" id="curveEmpty" style="display:none">
+        <b>No trades logged yet</b>
+        Your curve starts with the first entry below. Thirty trades is the minimum honest sample.
+      </div>
+    </div>
+  </section>
+
+  <!-- monthly performance bars -->
+  <section class="panel" id="monthlyPanel" style="display:none">
+    <div class="panel__head"><span>Monthly performance — net R per month</span><span class="mono" id="monthlyNote"></span></div>
+    <div class="panel__body" style="padding-bottom:10px">
+      <div class="curve-wrap" style="height:200px"><canvas id="monthlyCanvas" role="img" aria-label="Monthly net R bar chart"></canvas></div>
+    </div>
+  </section>
+
+  <!-- log a trade -->
+  <section class="panel">
+    <div class="panel__head"><span>Log a trade — under two minutes</span></div>
+    <div class="panel__body">
+      <p class="form-error" id="formErr" role="alert"></p>
+      <div class="trade-form">
+        <div class="field span-2"><label for="fDate">Date</label><input id="fDate" type="date" required></div>
+        <div class="field span-2"><label for="fSymbol">Symbol</label><input id="fSymbol" type="text" placeholder="RELIANCE" required></div>
+        <div class="field span-2"><label for="fSide">Side</label>
+          <select id="fSide"><option value="long">Long</option><option value="short">Short</option></select></div>
+        <div class="field span-2"><label for="fEntry">Entry price</label><input id="fEntry" type="number" step="any" min="0" required></div>
+        <div class="field span-2"><label for="fExit">Exit price</label><input id="fExit" type="number" step="any" min="0" required></div>
+        <div class="field span-2"><label for="fQty">Quantity</label><input id="fQty" type="number" step="any" min="0" required></div>
+        <div class="field span-2"><label for="fRisk">Risk amount (1R)</label><input id="fRisk" type="number" step="any" min="0" placeholder="Money you risked" required></div>
+        <div class="field span-2"><label for="fTag">Setup tag</label><input id="fTag" type="text" placeholder="liquidity-sweep" list="tagList"><datalist id="tagList"></datalist></div>
+        <div class="field span-2"><label for="fMood">Mood at entry</label>
+          <select id="fMood">
+            <option value="calm">Calm</option><option value="neutral" selected>Neutral</option>
+            <option value="fomo">FOMO</option><option value="revenge">Revenge</option>
+            <option value="fear">Fear</option><option value="overconfident">Overconfident</option>
+          </select></div>
+        <div class="field span-6"><label for="fNotes">Notes</label>
+          <textarea id="fNotes" placeholder="Why you entered. Why you exited. What you'd repeat — or never do again."></textarea></div>
+        <div class="span-6" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn--ultra" id="saveBtn">Log trade</button>
+          <button class="btn btn--ghost" id="cancelEditBtn" style="display:none">Cancel edit</button>
+          <span class="mono" id="rPreview" style="font-size:13px;color:var(--ink-faint)"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- import trades from CSV -->
+  <section class="panel">
+    <div class="panel__head">
+      <span>Import trades from CSV</span>
+      <button class="btn btn--ghost btn--sm" id="importToggle">Show</button>
+    </div>
+    <div id="importSection" style="display:none">
+      <div class="panel__body" style="border-top:1px solid var(--line)">
+        <p style="font-size:13.5px;color:var(--ink-soft);margin-bottom:14px">
+          Upload a CSV with columns: <span class="mono" style="font-size:12px">date, symbol, side, entry, exit, qty, risk</span> (required) and <span class="mono" style="font-size:12px">setup, mood, notes</span> (optional). P&L and R are recomputed — any existing columns are ignored.
+        </p>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <input type="file" id="importFile" accept=".csv" style="font-family:var(--font-mono);font-size:13px">
+          <button class="btn btn--ghost" id="importBtn">Import</button>
+        </div>
+        <div id="importResult" style="margin-top:14px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- risk guard -->
+  <section class="panel">
+    <div class="panel__head"><span>Risk guard — broken rules are recorded in ink</span><span class="mono" id="guardState"></span></div>
+    <div class="panel__body">
+      <p class="form-error" id="guardErr" role="alert"></p>
+      <div class="trade-form">
+        <div class="field span-2">
+          <label for="gDaily">Daily loss limit (R)</label>
+          <input id="gDaily" type="number" step="any" min="0" placeholder="e.g. 3 — empty = off">
+          <p class="hint">Logging a trade that takes the day below −limit gets flagged.</p>
+        </div>
+        <div class="field span-2">
+          <label for="gMaxRisk">Max risk per trade</label>
+          <input id="gMaxRisk" type="number" step="any" min="0" placeholder="money cap — empty = off">
+          <p class="hint">Trades risking more than this get flagged.</p>
+        </div>
+        <div class="field span-2">
+          <label for="gCooldown">Post-loss cooldown (min)</label>
+          <input id="gCooldown" type="number" step="1" min="0" placeholder="e.g. 30 — empty = off">
+          <p class="hint">Logging a trade this soon after a loss gets flagged.</p>
+        </div>
+        <div class="span-6" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn--ghost" id="guardSaveBtn">Save rules</button>
+          <span class="mono" style="font-size:12px;color:var(--ink-faint)">Violations never block the log — the journal records reality, including yours.</span>
+        </div>
+      </div>
+      <div id="violationsList" style="margin-top:18px"></div>
+    </div>
+  </section>
+
+  <!-- trades table -->
+  <section class="panel">
+    <div class="panel__head">
+      <span>Trades — newest last</span>
+      <span class="mono" id="tradeFilterCount" style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ultra)"></span>
+    </div>
+    <!-- filter bar — shown once there are trades -->
+    <div class="filter-bar" id="tradeFilters" style="display:none">
+      <div class="field" style="margin:0;flex:1.2;min-width:100px">
+        <label for="ffSymbol">Symbol</label>
+        <input id="ffSymbol" type="text" placeholder="RELIANCE">
+      </div>
+      <div class="field" style="margin:0;flex:1.5;min-width:130px">
+        <label for="ffSetup">Setup</label>
+        <input id="ffSetup" type="text" placeholder="liquidity-sweep">
+      </div>
+      <div class="field" style="margin:0;flex:1;min-width:110px">
+        <label for="ffMood">Mood</label>
+        <select id="ffMood">
+          <option value="">All moods</option>
+          <option value="calm">Calm</option>
+          <option value="neutral">Neutral</option>
+          <option value="fomo">FOMO</option>
+          <option value="revenge">Revenge</option>
+          <option value="fear">Fear</option>
+          <option value="overconfident">Overconfident</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0;flex:1.8;min-width:140px">
+        <label for="ffNotes">Notes contain</label>
+        <input id="ffNotes" type="text" placeholder="chased entry…">
+      </div>
+      <div class="field" style="margin:0;flex:1;min-width:110px">
+        <label for="ffFrom">From</label>
+        <input id="ffFrom" type="date">
+      </div>
+      <div class="field" style="margin:0;flex:1;min-width:110px">
+        <label for="ffTo">To</label>
+        <input id="ffTo" type="date">
+      </div>
+      <div style="align-self:flex-end;padding-bottom:1px">
+        <button class="btn btn--ghost btn--sm" id="clearFilters">Clear</button>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table id="tradesTable" style="display:none">
+        <thead><tr>
+          <th>Date</th><th>Symbol</th><th>Side</th><th>Entry → Exit</th><th>Qty</th>
+          <th>P&amp;L</th><th>R</th><th>Setup</th><th>Mood</th><th>Notes</th><th></th>
+        </tr></thead>
+        <tbody id="tradesBody"></tbody>
+      </table>
+    </div>
+    <div id="loadMoreWrap" style="text-align:center;padding:18px;display:none">
+      <button class="btn btn--ghost" id="loadMoreBtn">Load more</button>
+    </div>
+    <div class="empty" id="tableEmpty" style="display:none">
+      <b>The table is the mirror</b>
+      Every row is evidence. Log the losers especially — they pay the tuition.
+    </div>
+  </section>
+
+  <!-- slices -->
+  <div class="slices">
+    <section class="panel" style="margin-top:0">
+      <div class="panel__head"><span>Expectancy by setup</span></div>
+      <div class="panel__body" id="bySetup"><div class="empty">Needs logged trades.</div></div>
+    </section>
+    <section class="panel" style="margin-top:0">
+      <div class="panel__head"><span>Expectancy by mood</span></div>
+      <div class="panel__body" id="byMood"><div class="empty">Needs logged trades.</div></div>
+    </section>
+  </div>
+</main>
+
+<script src="/shared.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

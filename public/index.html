@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Edgewise — Your edge is a number. Measure it.</title>
+<meta name="description" content="Edgewise is the trading journal that turns your trade log into a measurable, improvable edge.">
+<style>
+/* ============================================================
+   EDGEWISE — design tokens
+   Palette: Chalk / Ink / Ultramarine / Win / Loss
+  Type:    local fallback stacks for display, body, and data
+   ============================================================ */
+:root{
+  --chalk:      #F3F3EE;
+  --chalk-deep: #E9E9E1;
+  --ink:        #101019;
+  --ink-soft:   #3C3C46;
+  --ink-faint:  #6E6E78;
+  --ultra:      #2323E6;
+  --ultra-hot:  #4040FF;
+  --win:        #0B7C55;
+  --loss:       #CE2B1D;
+  --loss-tint:  rgba(206,43,29,.08);
+  --line:       rgba(16,16,25,.14);
+  --line-strong:rgba(16,16,25,.32);
+
+  --font-display:"Archivo",sans-serif;
+  --font-body:"Schibsted Grotesk",sans-serif;
+  --font-mono:"Spline Sans Mono",monospace;
+
+  --gutter: clamp(20px, 4.5vw, 72px);
+  --maxw: 1320px;
+  --radius: 2px;
+
+  --t-fast: 160ms cubic-bezier(.4,0,.2,1);
+  --t-med:  260ms cubic-bezier(.4,0,.2,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+html:focus-within{scroll-behavior:smooth}
+body{
+  background:var(--chalk);
+  color:var(--ink);
+  font-family:var(--font-body);
+  font-size:17px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+::selection{background:var(--ultra);color:var(--chalk)}
+img,svg,canvas{display:block;max-width:100%}
+a{color:inherit;text-decoration:none}
+button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+:focus-visible{outline:3px solid var(--ultra);outline-offset:3px;border-radius:2px}
+
+.skip-link{
+  position:absolute;left:-9999px;top:0;z-index:200;
+  background:var(--ink);color:var(--chalk);padding:12px 20px;font-family:var(--font-mono);font-size:13px;
+}
+.skip-link:focus{left:12px;top:12px}
+
+/* ---------- type utilities ---------- */
+.eyebrow{
+  font-family:var(--font-mono);
+  font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-faint);
+  display:flex;align-items:center;gap:10px;
+}
+.eyebrow::before{content:"";width:28px;height:2px;background:var(--ultra)}
+.display{
+  font-family:var(--font-display);
+  font-variation-settings:"wdth" 122;
+  font-weight:780;
+  text-transform:uppercase;
+  letter-spacing:-.01em;
+  line-height:.94;
+}
+.mono{font-family:var(--font-mono)}
+.win{color:var(--win)}
+.loss{color:var(--loss)}
+
+/* ============================================================
+   TICKER STRIP
+   ============================================================ */
+.ticker{
+  background:var(--ink);color:var(--chalk);
+  border-bottom:1px solid var(--ink);
+  overflow:hidden;white-space:nowrap;
+  font-family:var(--font-mono);font-size:12.5px;letter-spacing:.06em;
+  user-select:none;
+}
+.ticker__track{display:inline-flex;gap:0;padding:9px 0;animation:tickerScroll 38s linear infinite;will-change:transform}
+.ticker:hover .ticker__track{animation-play-state:paused}
+.ticker__item{display:inline-flex;align-items:center;gap:8px;padding:0 26px;border-right:1px solid rgba(243,243,238,.18)}
+.ticker .up{color:#5FE3A1}
+.ticker .down{color:#FF7B6B}
+@keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+.nav{
+  position:sticky;top:0;z-index:100;
+  background:rgba(243,243,238,.86);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--line);
+}
+.nav__inner{
+  max-width:var(--maxw);margin:0 auto;padding:0 var(--gutter);
+  display:flex;align-items:center;justify-content:space-between;
+  height:68px;
+}
+.brand{display:flex;align-items:center;gap:11px;font-family:var(--font-display);font-variation-settings:"wdth" 125;font-weight:800;text-transform:uppercase;font-size:18px;letter-spacing:.02em}
+.brand__mark{width:26px;height:26px;flex:none}
+.nav__links{display:flex;gap:34px;align-items:center}
+.nav__links a{
+  font-family:var(--font-mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);
+  padding:10px 2px;position:relative;transition:color var(--t-fast);
+}
+.nav__links a::after{
+  content:"";position:absolute;left:0;bottom:6px;width:100%;height:2px;
+  background:var(--ultra);transform:scaleX(0);transform-origin:left;transition:transform var(--t-med);
+}
+.nav__links a:hover{color:var(--ink)}
+.nav__links a:hover::after{transform:scaleX(1)}
+.nav__links a.btn{color:var(--chalk)}
+.nav__links a.btn::after{display:none}
+.nav__links a.btn:hover{color:var(--chalk)}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  min-height:46px;padding:0 26px;
+  font-family:var(--font-mono);font-size:13.5px;letter-spacing:.1em;text-transform:uppercase;
+  border:1.5px solid var(--ink);border-radius:var(--radius);
+  transition:background var(--t-fast),color var(--t-fast),border-color var(--t-fast),transform var(--t-fast);
+}
+.btn--solid{background:var(--ink);color:var(--chalk)}
+.btn--solid:hover{background:var(--ultra);border-color:var(--ultra)}
+.btn--ultra{background:var(--ultra);border-color:var(--ultra);color:#fff}
+.btn--ultra:hover{background:var(--ink);border-color:var(--ink)}
+.btn--ghost:hover{background:var(--ink);color:var(--chalk)}
+.btn:active{transform:translateY(1px)}
+@media (max-width:760px){.nav__links a:not(.btn){display:none}}
+
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero{
+  max-width:var(--maxw);margin:0 auto;padding:clamp(56px,8vw,108px) var(--gutter) 0;
+}
+.hero__kicker{display:flex;justify-content:space-between;align-items:baseline;gap:20px;flex-wrap:wrap;margin-bottom:26px}
+.hero__kicker .mono{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint)}
+.hero h1{
+  font-size:clamp(44px, 8.6vw, 122px);
+  max-width:14ch;
+}
+.hero h1 .stroke{
+  color:transparent;
+  -webkit-text-stroke:1.6px var(--ink);
+}
+.hero h1 .ultra-word{color:var(--ultra);font-style:italic;font-variation-settings:"wdth" 100}
+.hero__sub{
+  margin-top:30px;display:grid;grid-template-columns:minmax(0,560px) auto;gap:32px;align-items:end;justify-content:space-between;
+}
+.hero__sub p{font-size:clamp(17px,1.6vw,20px);color:var(--ink-soft);max-width:54ch}
+.hero__sub p strong{color:var(--ink)}
+.hero__cta{display:flex;gap:14px;flex-wrap:wrap}
+@media (max-width:860px){.hero__sub{grid-template-columns:1fr}}
+
+/* ---------- equity lab (signature element) ---------- */
+.lab{
+  max-width:var(--maxw);margin:clamp(44px,6vw,76px) auto 0;padding:0 var(--gutter);
+}
+.lab__frame{
+  border:1.5px solid var(--ink);
+  border-radius:var(--radius);
+  background:linear-gradient(180deg,#FBFBF7 0%, #F3F3EE 100%);
+  position:relative;
+  overflow:hidden;
+}
+.lab__head{
+  display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:16px 22px;border-bottom:1px solid var(--line);
+  font-family:var(--font-mono);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;
+}
+.lab__head .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--win);margin-right:8px;animation:pulse 2.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.lab__stats{display:flex;gap:26px;flex-wrap:wrap}
+.lab__stats span b{font-weight:600}
+.lab__canvas-wrap{position:relative;height:clamp(300px,42vw,460px)}
+#equityCanvas{position:absolute;inset:0;width:100%;height:100%}
+.lab__grid-label{
+  position:absolute;font-family:var(--font-mono);font-size:11px;color:var(--ink-faint);
+  letter-spacing:.08em;pointer-events:none;
+}
+.lab__controls{
+  border-top:1px solid var(--line);
+  padding:22px;display:grid;grid-template-columns:1fr auto;gap:24px;align-items:center;
+}
+.lab__slider-block label{
+  display:flex;justify-content:space-between;align-items:baseline;
+  font-family:var(--font-mono);font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);
+  margin-bottom:14px;
+}
+.lab__slider-block label output{color:var(--ultra);font-weight:600}
+input[type="range"]{
+  -webkit-appearance:none;appearance:none;width:100%;height:44px;background:transparent;cursor:pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track{height:3px;background:linear-gradient(90deg,var(--loss),var(--ink-faint) 50%,var(--win));border-radius:2px}
+input[type="range"]::-moz-range-track{height:3px;background:linear-gradient(90deg,var(--loss),var(--ink-faint) 50%,var(--win));border-radius:2px}
+input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:26px;height:26px;margin-top:-11.5px;border-radius:50%;
+  background:var(--ultra);border:3px solid var(--chalk);box-shadow:0 0 0 1.5px var(--ink);
+  transition:transform var(--t-fast);
+}
+input[type="range"]::-moz-range-thumb{
+  width:20px;height:20px;border-radius:50%;background:var(--ultra);border:3px solid var(--chalk);box-shadow:0 0 0 1.5px var(--ink);
+}
+input[type="range"]:hover::-webkit-slider-thumb{transform:scale(1.12)}
+.lab__verdict{
+  font-family:var(--font-mono);font-size:13px;letter-spacing:.04em;
+  border:1px dashed var(--line-strong);border-radius:var(--radius);
+  padding:14px 18px;max-width:330px;color:var(--ink-soft);min-width:260px;
+}
+.lab__verdict b{color:var(--ink)}
+@media (max-width:760px){.lab__controls{grid-template-columns:1fr}.lab__verdict{max-width:none}}
+
+/* ============================================================
+   ORDER-BOOK STAT STRIP
+   ============================================================ */
+.book{
+  max-width:var(--maxw);margin:clamp(60px,8vw,110px) auto 0;padding:0 var(--gutter);
+}
+.book__grid{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  border:1.5px solid var(--ink);border-radius:var(--radius);overflow:hidden;
+}
+.book__cell{
+  padding:clamp(20px,2.6vw,34px);
+  border-right:1px solid var(--line);
+  background:#FBFBF7;
+  transition:background var(--t-med);
+}
+.book__cell:last-child{border-right:none}
+.book__cell:hover{background:#fff}
+.book__cell .mono{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-faint)}
+.book__cell strong{
+  display:block;margin-top:10px;
+  font-family:var(--font-display);font-variation-settings:"wdth" 115;font-weight:740;
+  font-size:clamp(26px,3.4vw,44px);line-height:1;
+}
+.book__cell small{display:block;margin-top:8px;font-size:13.5px;color:var(--ink-soft)}
+@media (max-width:860px){
+  .book__grid{grid-template-columns:1fr 1fr}
+  .book__cell:nth-child(2){border-right:none}
+  .book__cell:nth-child(-n+2){border-bottom:1px solid var(--line)}
+}
+@media (max-width:480px){
+  .book__grid{grid-template-columns:1fr}
+  .book__cell{border-right:none;border-bottom:1px solid var(--line)}
+  .book__cell:last-child{border-bottom:none}
+}
+
+/* ============================================================
+   SECTION SHELL
+   ============================================================ */
+.section{max-width:var(--maxw);margin:0 auto;padding:clamp(80px,11vw,150px) var(--gutter) 0}
+.section__head{display:grid;grid-template-columns:auto 1fr;gap:clamp(24px,4vw,64px);align-items:end;margin-bottom:clamp(36px,5vw,60px)}
+.section__head h2{font-size:clamp(34px,5.4vw,72px);max-width:13ch}
+.section__head p{max-width:46ch;color:var(--ink-soft);justify-self:end;align-self:end;font-size:clamp(16px,1.4vw,18px)}
+@media (max-width:860px){.section__head{grid-template-columns:1fr}.section__head p{justify-self:start}}
+
+/* ============================================================
+   JOURNAL CARDS (features)
+   ============================================================ */
+.journal{display:grid;grid-template-columns:repeat(2,1fr);gap:clamp(16px,2vw,26px)}
+.card{
+  border:1.5px solid var(--ink);border-radius:var(--radius);
+  background:#FBFBF7;
+  padding:clamp(22px,2.8vw,34px);
+  position:relative;overflow:hidden;
+  transition:transform var(--t-med),box-shadow var(--t-med);
+}
+.card:hover{transform:translate(-3px,-3px);box-shadow:6px 6px 0 var(--ultra)}
+.card__tag{
+  position:absolute;top:0;right:0;
+  font-family:var(--font-mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+  background:var(--ink);color:var(--chalk);padding:7px 14px;border-bottom-left-radius:var(--radius);
+}
+.card__tag--win{background:var(--win)}
+.card__tag--loss{background:var(--loss)}
+.card h3{
+  font-family:var(--font-display);font-variation-settings:"wdth" 118;font-weight:760;text-transform:uppercase;
+  font-size:clamp(21px,2.3vw,28px);line-height:1.04;letter-spacing:.005em;
+  margin:6px 0 14px;max-width:16ch;
+}
+.card p{color:var(--ink-soft);font-size:15.5px;max-width:52ch}
+.card__data{
+  margin-top:22px;padding-top:18px;border-top:1px dashed var(--line-strong);
+  display:flex;gap:26px;flex-wrap:wrap;
+  font-family:var(--font-mono);font-size:12.5px;letter-spacing:.04em;
+}
+.card__data span{color:var(--ink-faint)}
+.card__data b{display:block;margin-top:4px;font-size:15px;font-weight:600;color:var(--ink)}
+.card__icon{width:34px;height:34px;color:var(--ultra)}
+@media (max-width:760px){.journal{grid-template-columns:1fr}}
+
+/* ============================================================
+   DRAWDOWN BAND (dark interlude)
+   ============================================================ */
+.band{
+  margin-top:clamp(90px,12vw,160px);
+  background:var(--ink);color:var(--chalk);
+  position:relative;overflow:hidden;
+}
+.band::before{
+  content:"";position:absolute;inset:0;opacity:.5;pointer-events:none;
+  background-image:repeating-linear-gradient(90deg,transparent 0 119px,rgba(243,243,238,.06) 119px 120px);
+}
+.band__inner{
+  max-width:var(--maxw);margin:0 auto;padding:clamp(80px,10vw,140px) var(--gutter);
+  position:relative;
+}
+.band__quote{
+  font-size:clamp(32px,5.6vw,76px);
+  max-width:18ch;
+}
+.band__quote em{color:var(--ultra-hot);font-style:italic;font-variation-settings:"wdth" 100}
+.band__row{
+  margin-top:clamp(40px,5vw,64px);display:flex;justify-content:space-between;gap:32px;flex-wrap:wrap;align-items:flex-end;
+}
+.band__row p{max-width:46ch;color:rgba(243,243,238,.72);font-size:16.5px}
+.band__stamp{
+  font-family:var(--font-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:rgba(243,243,238,.5);
+  border:1px dashed rgba(243,243,238,.3);padding:14px 18px;border-radius:var(--radius);
+}
+.band .eyebrow{color:rgba(243,243,238,.55);margin-bottom:28px}
+
+/* ============================================================
+   PRICING — order tickets
+   ============================================================ */
+.tickets{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(16px,2vw,26px);align-items:stretch}
+.ticket{
+  border:1.5px solid var(--ink);border-radius:var(--radius);
+  background:#FBFBF7;display:flex;flex-direction:column;
+  transition:transform var(--t-med),box-shadow var(--t-med);
+}
+.ticket:hover{transform:translateY(-5px);box-shadow:0 14px 34px -16px rgba(16,16,25,.36)}
+.ticket--hot{background:var(--ultra);color:#fff;border-color:var(--ultra)}
+.ticket__head{
+  padding:20px 24px;border-bottom:1px dashed var(--line-strong);
+  display:flex;justify-content:space-between;align-items:center;
+  font-family:var(--font-mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+}
+.ticket--hot .ticket__head{border-color:rgba(255,255,255,.4)}
+.ticket__badge{background:var(--ink);color:var(--chalk);padding:5px 10px;border-radius:2px;font-size:10.5px}
+.ticket--hot .ticket__badge{background:#fff;color:var(--ultra)}
+.ticket__body{padding:26px 24px 30px;display:flex;flex-direction:column;gap:0;flex:1}
+.ticket__price{
+  font-family:var(--font-display);font-variation-settings:"wdth" 115;font-weight:760;
+  font-size:clamp(40px,4.6vw,58px);line-height:1;
+}
+.ticket__price sup{font-size:.4em;vertical-align:super;font-weight:600}
+.ticket__price small{font-family:var(--font-mono);font-size:12.5px;font-weight:400;letter-spacing:.06em;margin-left:8px;color:var(--ink-faint)}
+.ticket--hot .ticket__price small{color:rgba(255,255,255,.7)}
+.ticket__desc{margin-top:12px;font-size:15px;color:var(--ink-soft);min-height:3em}
+.ticket--hot .ticket__desc{color:rgba(255,255,255,.85)}
+.ticket ul{list-style:none;margin:24px 0 30px;display:grid;gap:12px}
+.ticket li{display:flex;gap:11px;align-items:flex-start;font-size:14.5px}
+.ticket li svg{width:17px;height:17px;flex:none;margin-top:2.5px;color:var(--win)}
+.ticket--hot li svg{color:#BFF7DE}
+.ticket .btn{margin-top:auto;width:100%}
+.ticket--hot .btn{background:#fff;color:var(--ultra);border-color:#fff}
+.ticket--hot .btn:hover{background:var(--ink);color:var(--chalk);border-color:var(--ink)}
+@media (max-width:860px){.tickets{grid-template-columns:1fr}}
+
+/* ============================================================
+   FINAL CTA + FOOTER
+   ============================================================ */
+.final{
+  max-width:var(--maxw);margin:0 auto;padding:clamp(90px,12vw,170px) var(--gutter) clamp(80px,9vw,120px);
+  text-align:left;
+}
+.final h2{font-size:clamp(40px,8vw,110px);max-width:12ch}
+.final h2 .stroke{color:transparent;-webkit-text-stroke:1.6px var(--ink)}
+.final__row{margin-top:38px;display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+.final__note{font-family:var(--font-mono);font-size:12.5px;letter-spacing:.08em;color:var(--ink-faint);margin-top:18px}
+
+.footer{border-top:1.5px solid var(--ink)}
+.footer__inner{
+  max-width:var(--maxw);margin:0 auto;padding:34px var(--gutter);
+  display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:center;
+  font-family:var(--font-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);
+}
+.footer__links{display:flex;gap:26px}
+.footer__links a{padding:10px 0;transition:color var(--t-fast)}
+.footer__links a:hover{color:var(--ink)}
+
+/* ---------- scroll reveal ---------- */
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.2,.6,.2,1),transform .7s cubic-bezier(.2,.6,.2,1)}
+.reveal.is-in{opacity:1;transform:none}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+  html{scroll-behavior:auto}
+  .reveal{opacity:1;transform:none}
+  .ticker__track{animation:none}
+}
+</style>
+</head>
+<body>
+
+<a class="skip-link" href="#main">Skip to main content</a>
+
+<!-- ============ TICKER ============ -->
+<div class="ticker" aria-hidden="true">
+  <div class="ticker__track" id="tickerTrack">
+    <span class="ticker__item">AVG R-MULTIPLE <span class="up">+0.42 ▲</span></span>
+    <span class="ticker__item">WIN RATE 30-TRADE <span class="up">54.8% ▲</span></span>
+    <span class="ticker__item">REVENGE TRADES THIS WEEK <span class="up">0 ▼</span></span>
+    <span class="ticker__item">MAX DRAWDOWN <span class="down">-6.2%</span></span>
+    <span class="ticker__item">RULE ADHERENCE <span class="up">91% ▲</span></span>
+    <span class="ticker__item">SETUPS WITH POSITIVE EXPECTANCY <span class="up">2 OF 5</span></span>
+    <span class="ticker__item">AVG HOLD TIME WINNERS <span class="up">3.1× LOSERS</span></span>
+    <span class="ticker__item">UNTAGGED TRADES <span class="down">3 — LOG THEM</span></span>
+  </div>
+</div>
+
+<!-- ============ NAV ============ -->
+<header class="nav">
+  <div class="nav__inner">
+    <a class="brand" href="#" aria-label="Edgewise home">
+      <svg class="brand__mark" viewBox="0 0 26 26" fill="none" aria-hidden="true">
+        <rect x="1" y="1" width="24" height="24" stroke="#101019" stroke-width="2"/>
+        <path d="M4 19 L10 12 L14 15 L22 5" stroke="#2323E6" stroke-width="2.4" fill="none"/>
+        <circle cx="22" cy="5" r="2.4" fill="#2323E6"/>
+      </svg>
+      Edgewise
+    </a>
+    <nav class="nav__links" aria-label="Primary">
+      <a href="#system">The system</a>
+      <a href="#drawdown">Why journal</a>
+      <a href="#pricing">Pricing</a>
+      <a href="/login">Sign in</a>
+      <a class="btn btn--solid" href="/register">Start logging</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="hero__kicker">
+    <p class="eyebrow">Trade journal &amp; edge analytics</p>
+    <p class="mono">EST. SESSION 2026 / FOR DISCRETIONARY &amp; SYSTEMATIC TRADERS</p>
+  </div>
+  <h1 class="display">
+    Your edge is a <span class="stroke">number.</span><br>
+    <span class="ultra-word">Measure</span> it.
+  </h1>
+  <div class="hero__sub">
+    <p>
+      Most traders don't lose to the market. They lose to <strong>untracked behavior</strong> —
+      the oversized revenge trade, the early exit, the setup that never had expectancy.
+      Edgewise turns every trade you log into evidence, so you scale what works and kill what doesn't.
+    </p>
+    <div class="hero__cta">
+      <a class="btn btn--ultra" href="/register">Open your journal</a>
+      <a class="btn btn--ghost" href="#system">See the system</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ EQUITY LAB (signature) ============ -->
+<section class="lab" aria-label="Interactive equity curve demo">
+  <div class="lab__frame reveal">
+    <div class="lab__head">
+      <span><span class="dot"></span>EQUITY LAB — SIMULATED 240-TRADE SEQUENCE</span>
+      <div class="lab__stats">
+        <span>NET P&amp;L <b id="statPnl" class="win">+0.0R</b></span>
+        <span>MAX DD <b id="statDd" class="loss">0.0%</b></span>
+        <span>EXPECTANCY <b id="statExp">0.00R</b></span>
+      </div>
+    </div>
+    <div class="lab__canvas-wrap">
+      <canvas id="equityCanvas" role="img" aria-label="Equity curve that smooths and trends upward as journaling discipline increases"></canvas>
+      <span class="lab__grid-label" style="top:12px;left:16px">EQUITY (R)</span>
+      <span class="lab__grid-label" style="bottom:10px;right:16px">TRADE № →</span>
+    </div>
+    <div class="lab__controls">
+      <div class="lab__slider-block">
+        <label for="discipline">
+          <span>Journaling discipline</span>
+          <output id="disciplineOut" for="discipline">35%</output>
+        </label>
+        <input type="range" id="discipline" min="0" max="100" value="35" step="1"
+               aria-label="Journaling discipline percentage. Drag to see how the equity curve changes.">
+      </div>
+      <p class="lab__verdict" id="verdict" aria-live="polite"></p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ORDER BOOK STATS ============ -->
+<section class="book reveal" aria-label="Outcomes">
+  <div class="book__grid">
+    <div class="book__cell">
+      <span class="mono">BID / 01</span>
+      <strong class="display">38<sup style="font-size:.45em">%</sup></strong>
+      <small>median drop in rule violations after 30 logged trades</small>
+    </div>
+    <div class="book__cell">
+      <span class="mono">BID / 02</span>
+      <strong class="display">2 MIN</strong>
+      <small>to log a trade — screenshots, tags, and emotion in one entry</small>
+    </div>
+    <div class="book__cell">
+      <span class="mono">ASK / 03</span>
+      <strong class="display">12K+</strong>
+      <small>traders running their review process on Edgewise</small>
+    </div>
+    <div class="book__cell">
+      <span class="mono">ASK / 04</span>
+      <strong class="display">0</strong>
+      <small>signals sold. We measure your trading — we never tell you what to buy</small>
+    </div>
+  </div>
+</section>
+
+<!-- ============ SYSTEM / FEATURES ============ -->
+<section class="section" id="system">
+  <div class="section__head">
+    <div>
+      <p class="eyebrow reveal">The system</p>
+      <h2 class="display reveal">Log. Tag. Review. Repeat.</h2>
+    </div>
+    <p class="reveal">Four instruments, one loop. Each entry below is styled the way your journal will look — because the product is the journal, not a dashboard you ignore.</p>
+  </div>
+
+  <div class="journal">
+    <article class="card reveal">
+      <span class="card__tag card__tag--win">ENTRY · LOGGED</span>
+      <svg class="card__icon" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect x="4" y="3" width="26" height="28" stroke="currentColor" stroke-width="2"/><path d="M10 11h14M10 17h14M10 23h8" stroke="currentColor" stroke-width="2"/></svg>
+      <h3>Two-minute trade log</h3>
+      <p>Capture entry, exit, size, setup tag, screenshot, and how you felt — before the memory rewrites itself. Mobile-first, because you won't log from a desktop at 9:17 AM.</p>
+      <div class="card__data">
+        <span>FIELDS <b>11</b></span>
+        <span>AVG LOG TIME <b>1m 52s</b></span>
+        <span>BROKER IMPORT <b>CSV / API</b></span>
+      </div>
+    </article>
+
+    <article class="card reveal">
+      <span class="card__tag">ANALYSIS · AUTO</span>
+      <svg class="card__icon" viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M4 28 L12 16 L18 21 L30 5" stroke="currentColor" stroke-width="2.4"/><circle cx="30" cy="5" r="3" fill="currentColor"/><path d="M4 31h26" stroke="currentColor" stroke-width="2"/></svg>
+      <h3>Pattern engine</h3>
+      <p>Expectancy, R-multiple distribution, and win rate — sliced by setup, session, day, and emotional state. It finds the one setup paying for the other four.</p>
+      <div class="card__data">
+        <span>SLICES <b>setup · time · mood</b></span>
+        <span>MIN SAMPLE <b>30 trades</b></span>
+        <span>OUTPUT <b>expectancy per tag</b></span>
+      </div>
+    </article>
+
+    <article class="card reveal">
+      <span class="card__tag card__tag--loss">RISK · ARMED</span>
+      <svg class="card__icon" viewBox="0 0 34 34" fill="none" aria-hidden="true"><path d="M17 3 L30 9 V17 C30 25 24 29.5 17 31 C10 29.5 4 25 4 17 V9 Z" stroke="currentColor" stroke-width="2"/><path d="M11 17 L15.5 21.5 L23 12.5" stroke="currentColor" stroke-width="2.4" fill="none"/></svg>
+      <h3>Risk guard</h3>
+      <p>Set daily loss limits, max position size, and a revenge-trade cooldown. When you break a rule, it's recorded in ink — your future self reads the receipt in review.</p>
+      <div class="card__data">
+        <span>RULES <b>custom</b></span>
+        <span>COOLDOWN <b>15–120 min</b></span>
+        <span>VIOLATIONS <b>permanently logged</b></span>
+      </div>
+    </article>
+
+    <article class="card reveal">
+      <span class="card__tag">REVIEW · WEEKLY</span>
+      <svg class="card__icon" viewBox="0 0 34 34" fill="none" aria-hidden="true"><circle cx="17" cy="17" r="13" stroke="currentColor" stroke-width="2"/><path d="M17 9v8l6 4" stroke="currentColor" stroke-width="2.4" fill="none"/></svg>
+      <h3>Replay &amp; weekly debrief</h3>
+      <p>Every Sunday: your week replayed trade by trade, the three patterns that cost you the most, and one concrete rule to test next week. A coach's review, built from your own data.</p>
+      <div class="card__data">
+        <span>CADENCE <b>weekly</b></span>
+        <span>FORMAT <b>5-min read</b></span>
+        <span>ACTION ITEMS <b>exactly one</b></span>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- ============ DRAWDOWN BAND ============ -->
+<section class="band" id="drawdown">
+  <div class="band__inner">
+    <p class="eyebrow reveal">Field note</p>
+    <h2 class="display band__quote reveal">The market doesn't punish bad trades. It punishes <em>unexamined</em> ones.</h2>
+    <div class="band__row reveal">
+      <p>A losing trade with a logged reason is tuition. The same trade unlogged is a debt you'll pay again next month — same setup, same hour, same mistake, bigger size. The journal is the difference between the two.</p>
+      <p class="band__stamp">LOGGED 2026-06-10 · 09:42 IST<br>TAG: PROCESS &gt; PREDICTION</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section class="section" id="pricing">
+  <div class="section__head">
+    <div>
+      <p class="eyebrow reveal">Pricing</p>
+      <h2 class="display reveal">Pick your ticket.</h2>
+    </div>
+    <p class="reveal">Priced like a tool, not a fund. Every plan keeps your full history — your data exports any day you want, in plain CSV.</p>
+  </div>
+
+  <div class="tickets">
+    <article class="ticket reveal">
+      <div class="ticket__head"><span>TICKET / 01</span><span class="ticket__badge">PAPER</span></div>
+      <div class="ticket__body">
+        <p class="ticket__price"><sup>$</sup>0<small>/ FOREVER</small></p>
+        <p class="ticket__desc">For the first 30 trades — enough sample to see whether you have an edge at all.</p>
+        <ul>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>30 logged trades / month</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Core stats: win rate, R-multiple, expectancy</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Screenshot attachments</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>CSV export, always</li>
+        </ul>
+        <a class="btn btn--ghost" href="/register">Start free</a>
+      </div>
+    </article>
+
+    <article class="ticket ticket--hot reveal">
+      <div class="ticket__head"><span>TICKET / 02</span><span class="ticket__badge">MOST FILLED</span></div>
+      <div class="ticket__body">
+        <p class="ticket__price"><sup>$</sup>12<small>/ MONTH</small></p>
+        <p class="ticket__desc">The full loop: unlimited logging, pattern engine, risk guard, and the weekly debrief.</p>
+        <ul>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Unlimited trades &amp; tags</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Pattern engine — expectancy by setup, session, mood</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Risk guard with revenge-trade cooldown</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Weekly debrief with one action item</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Broker import (CSV + API)</li>
+        </ul>
+        <a class="btn" href="/register">Go Operator</a>
+      </div>
+    </article>
+
+    <article class="ticket reveal">
+      <div class="ticket__head"><span>TICKET / 03</span><span class="ticket__badge">DESK</span></div>
+      <div class="ticket__body">
+        <p class="ticket__price"><sup>$</sup>39<small>/ MONTH</small></p>
+        <p class="ticket__desc">For prop teams and mentors — shared dashboards and accountability across a desk.</p>
+        <ul>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Everything in Operator</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Up to 10 seats, shared rule sets</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Mentor view: read-only journals</li>
+          <li><svg viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M3 9l3.5 3.5L14 4" stroke="currentColor" stroke-width="2.2"/></svg>Desk-level risk reporting</li>
+        </ul>
+        <a class="btn btn--ghost" href="/register">Talk to us</a>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- ============ FINAL CTA ============ -->
+<section class="final">
+  <p class="eyebrow reveal">Last call</p>
+  <h2 class="display reveal">Trade <span class="stroke">less</span> on hope.<br>More on record.</h2>
+  <div class="final__row reveal">
+    <a class="btn btn--ultra" href="/register">Log your first trade</a>
+    <a class="btn btn--ghost" href="#system">Read the system</a>
+  </div>
+  <p class="final__note reveal">FREE FOR YOUR FIRST 30 TRADES · NO CARD · YOUR DATA EXPORTS ANYTIME</p>
+</section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="footer">
+  <div class="footer__inner">
+    <span>© 2026 EDGEWISE LABS</span>
+    <nav class="footer__links" aria-label="Footer">
+      <a href="#">Manifesto</a>
+      <a href="#">Changelog</a>
+      <a href="#">Privacy</a>
+      <a href="#">X / Twitter</a>
+    </nav>
+    <span>NOT INVESTMENT ADVICE — A MIRROR, NOT A SIGNAL</span>
+  </div>
+</footer>
+
+<script>
+/* ============================================================
+   EQUITY LAB — interactive signature element
+   One fixed noise sequence; the discipline slider changes drift
+   and volatility so the curve morphs continuously (deterministic).
+   ============================================================ */
+(function(){
+  const canvas = document.getElementById('equityCanvas');
+  const ctx = canvas.getContext('2d');
+  const slider = document.getElementById('discipline');
+  const out = document.getElementById('disciplineOut');
+  const verdict = document.getElementById('verdict');
+  const statPnl = document.getElementById('statPnl');
+  const statDd = document.getElementById('statDd');
+  const statExp = document.getElementById('statExp');
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const N = 240;
+  // Deterministic noise (mulberry32)
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+  const rng = mulberry32(20260610);
+  const noise = Array.from({length:N}, () => (rng()*2-1) + (rng()*2-1)); // softer tails
+  const nMean = noise.reduce((a,b)=>a+b,0)/N;
+  for(let i=0;i<N;i++) noise[i] -= nMean; // zero-mean so the slider owns the trend
+
+  let drawProgress = reduceMotion ? 1 : 0;
+
+  function series(d){ // d in [0,1]
+    const drift = -0.10 + d*0.27;          // bleeds when undisciplined, compounds when not
+    const vol   = 2.4 - d*1.7;             // calmer curve with discipline
+    const pts = [0];
+    for(let i=0;i<N;i++){
+      // occasional "tilt cluster" when discipline is low
+      const tilt = (d < 0.45 && i%53 < 5) ? -vol*0.9*(0.45-d) : 0;
+      pts.push(pts[i] + drift + noise[i]*vol + tilt);
+    }
+    return pts;
+  }
+
+  function stats(pts){
+    const pnl = pts[pts.length-1];
+    let peak = -Infinity, maxDd = 0;
+    for(const v of pts){ peak = Math.max(peak, v); maxDd = Math.max(maxDd, peak - v); }
+    return { pnl, maxDd, exp: pnl/N };
+  }
+
+  function resize(){
+    const dpr = Math.min(window.devicePixelRatio||1, 2);
+    const r = canvas.parentElement.getBoundingClientRect();
+    canvas.width = r.width*dpr; canvas.height = r.height*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    draw();
+  }
+
+  function draw(){
+    const d = slider.value/100;
+    const pts = series(d);
+    const s = stats(pts);
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    const padX = 18, padT = 34, padB = 30;
+    const min = Math.min(...pts), max = Math.max(...pts);
+    const span = (max-min)||1;
+    const X = i => padX + (i/N)*(w-2*padX);
+    const Y = v => padT + (1-(v-min)/span)*(h-padT-padB);
+
+    ctx.clearRect(0,0,w,h);
+
+    // grid
+    ctx.strokeStyle = 'rgba(16,16,25,.07)'; ctx.lineWidth = 1;
+    for(let g=1; g<6; g++){
+      const gy = padT + g*(h-padT-padB)/6;
+      ctx.beginPath(); ctx.moveTo(padX,gy); ctx.lineTo(w-padX,gy); ctx.stroke();
+    }
+    // zero line
+    if(min<0 && max>0){
+      ctx.strokeStyle = 'rgba(16,16,25,.3)'; ctx.setLineDash([4,5]);
+      ctx.beginPath(); ctx.moveTo(padX,Y(0)); ctx.lineTo(w-padX,Y(0)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    const upto = Math.max(2, Math.floor(N*drawProgress));
+
+    // drawdown shading (below running peak)
+    let peak = pts[0];
+    ctx.fillStyle = 'rgba(206,43,29,.10)';
+    ctx.beginPath();
+    let started = false;
+    for(let i=0;i<=upto;i++){
+      peak = Math.max(peak, pts[i]);
+      if(pts[i] < peak - 0.001){
+        if(!started){ ctx.moveTo(X(i),Y(peak)); started = true; }
+        ctx.lineTo(X(i),Y(pts[i]));
+      } else if(started){
+        ctx.lineTo(X(i),Y(peak)); ctx.closePath(); ctx.fill();
+        ctx.beginPath(); started = false;
+      }
+    }
+    if(started){ ctx.lineTo(X(upto),Y(peak)); ctx.closePath(); ctx.fill(); }
+
+    // area under curve, faint ultramarine
+    const grad = ctx.createLinearGradient(0,padT,0,h-padB);
+    grad.addColorStop(0,'rgba(35,35,230,.12)');
+    grad.addColorStop(1,'rgba(35,35,230,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.moveTo(X(0), h-padB);
+    for(let i=0;i<=upto;i++) ctx.lineTo(X(i),Y(pts[i]));
+    ctx.lineTo(X(upto), h-padB); ctx.closePath(); ctx.fill();
+
+    // equity line
+    ctx.strokeStyle = '#2323E6'; ctx.lineWidth = 2.4; ctx.lineJoin='round'; ctx.lineCap='round';
+    ctx.beginPath();
+    for(let i=0;i<=upto;i++){ i===0 ? ctx.moveTo(X(i),Y(pts[i])) : ctx.lineTo(X(i),Y(pts[i])); }
+    ctx.stroke();
+
+    // endpoint dot + label
+    const ex = X(upto), ey = Y(pts[upto]);
+    ctx.fillStyle = '#2323E6';
+    ctx.beginPath(); ctx.arc(ex,ey,4.5,0,Math.PI*2); ctx.fill();
+    ctx.font = '600 12px "Spline Sans Mono", monospace';
+    const lbl = (pts[upto]>=0?'+':'') + pts[upto].toFixed(1) + 'R';
+    ctx.fillStyle = pts[upto]>=0 ? '#0B7C55' : '#CE2B1D';
+    ctx.fillText(lbl, Math.min(ex+10, w-58), ey-8);
+
+    // stats
+    statPnl.textContent = (s.pnl>=0?'+':'') + s.pnl.toFixed(1) + 'R';
+    statPnl.className = s.pnl>=0 ? 'win' : 'loss';
+    statDd.textContent = '-' + Math.min(99, s.maxDd*0.9).toFixed(1) + '%';
+    statExp.textContent = (s.exp>=0?'+':'') + s.exp.toFixed(2) + 'R';
+    statExp.className = s.exp>=0 ? 'win' : 'loss';
+  }
+
+  function verdictFor(v){
+    if(v < 20) return '<b>Untracked.</b> Negative drift, deep drawdowns. This is most traders\u2019 reality — and they can\u2019t see it, because there\u2019s no record.';
+    if(v < 50) return '<b>Occasional notes.</b> Better, but the tilt clusters are still there. A journal you only open after wins isn\u2019t a journal.';
+    if(v < 80) return '<b>Consistent log.</b> Drawdowns shrink because rule breaks get caught the same week they appear, not the same quarter.';
+    return '<b>Full loop.</b> Log, tag, review, adjust. The curve isn\u2019t luck — it\u2019s the compounding of small corrections.';
+  }
+
+  function update(){
+    out.textContent = slider.value + '%';
+    verdict.innerHTML = verdictFor(+slider.value);
+    draw();
+  }
+
+  slider.addEventListener('input', update);
+  window.addEventListener('resize', resize);
+
+  // intro draw animation
+  function intro(ts0){
+    const dur = 1600;
+    function step(ts){
+      drawProgress = Math.min(1, (ts-ts0)/dur);
+      // ease out
+      const e = 1-Math.pow(1-drawProgress,3);
+      drawProgress = e;
+      draw();
+      if(e < 1) requestAnimationFrame(step); else { drawProgress = 1; draw(); }
+    }
+    requestAnimationFrame(step);
+  }
+
+  resize();
+  update();
+  if(!reduceMotion){
+    const io = new IntersectionObserver((es)=>{
+      if(es[0].isIntersecting){ requestAnimationFrame(t=>intro(t)); io.disconnect(); }
+    },{threshold:.3});
+    io.observe(canvas);
+  }
+})();
+
+/* ---------- ticker: duplicate track for seamless loop ---------- */
+(function(){
+  const t = document.getElementById('tickerTrack');
+  t.innerHTML += t.innerHTML;
+})();
+
+/* ---------- scroll reveal ---------- */
+(function(){
+  const els = document.querySelectorAll('.reveal');
+  if(!('IntersectionObserver' in window)){ els.forEach(e=>e.classList.add('is-in')); return; }
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{ if(en.isIntersecting){ en.target.classList.add('is-in'); io.unobserve(en.target); } });
+  },{threshold:.12, rootMargin:'0px 0px -6% 0px'});
+  els.forEach(e=>io.observe(e));
+})();
+</script>
+</body>
+</html>
