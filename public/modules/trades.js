@@ -126,7 +126,7 @@ function previewR() {
 }
 
 function resetForm() {
-  ['fSymbol', 'fEntry', 'fExit', 'fQty', 'fRisk', 'fNotes'].forEach(id => f(id).value = '');
+  ['fSymbol', 'fEntry', 'fExit', 'fQty', 'fRisk', 'fTag', 'fNotes'].forEach(id => f(id).value = '');
   f('fMood').value = 'neutral'; previewR();
   editingId = null;
   document.getElementById('saveBtn').textContent = 'Log trade';
