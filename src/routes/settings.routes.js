@@ -1,6 +1,6 @@
 /** Edgewise — /api/settings routes (risk guard configuration) */
 const express = require('express');
-const { db } = require('../db');
+const { get, run } = require('../db');
 const { requireAuth, toNum } = require('../auth');
 
 const router = express.Router();
@@ -8,13 +8,15 @@ router.use(requireAuth);
 
 const DEFAULTS = { daily_loss_limit_r: null, max_risk_amount: null, cooldown_minutes: null };
 
-router.get('/', (req, res) => {
-  const row = db.prepare('SELECT daily_loss_limit_r, max_risk_amount, cooldown_minutes FROM risk_settings WHERE user_id = ?')
-    .get(req.user.id);
+router.get('/', async (req, res) => {
+  const row = await get(
+    'SELECT daily_loss_limit_r, max_risk_amount, cooldown_minutes FROM risk_settings WHERE user_id = $1',
+    [req.user.id]
+  );
   res.json({ settings: row || DEFAULTS });
 });
 
-router.put('/', (req, res) => {
+router.put('/', async (req, res) => {
   const body = req.body || {};
   const clean = {};
   for (const [key, max] of [['daily_loss_limit_r', 100], ['max_risk_amount', 1e9], ['cooldown_minutes', 1440]]) {
@@ -26,14 +28,15 @@ router.put('/', (req, res) => {
     }
     clean[key] = key === 'cooldown_minutes' ? Math.round(n) : n;
   }
-  db.prepare(
+  await run(
     `INSERT INTO risk_settings (user_id, daily_loss_limit_r, max_risk_amount, cooldown_minutes)
-     VALUES (@user_id, @daily_loss_limit_r, @max_risk_amount, @cooldown_minutes)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT(user_id) DO UPDATE SET
-       daily_loss_limit_r = excluded.daily_loss_limit_r,
-       max_risk_amount    = excluded.max_risk_amount,
-       cooldown_minutes   = excluded.cooldown_minutes`
-  ).run({ user_id: req.user.id, ...clean });
+       daily_loss_limit_r = EXCLUDED.daily_loss_limit_r,
+       max_risk_amount    = EXCLUDED.max_risk_amount,
+       cooldown_minutes   = EXCLUDED.cooldown_minutes`,
+    [req.user.id, clean.daily_loss_limit_r, clean.max_risk_amount, clean.cooldown_minutes]
+  );
   res.json({ settings: clean });
 });
 

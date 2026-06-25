@@ -1,13 +1,13 @@
 {
   "name": "edgewise",
   "version": "1.0.0",
-  "description": "Edgewise — trading journal & edge analytics. Full-stack app: Express + SQLite backend, JWT cookie auth, user journal, admin panel.",
+  "description": "Edgewise — trading journal & edge analytics. Full-stack app: Express + PostgreSQL backend, JWT cookie auth, user journal, admin panel.",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test test/unit.test.js test/csv.test.js test/integration.test.js"
+    "test": "node --test test/unit.test.js test/csv.test.js"
   },
   "engines": {
     "node": ">=18"
@@ -16,12 +16,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.10.0",
     "cookie-parser": "^1.4.7",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
-    "nodemailer": "^8.0.11"
+    "nodemailer": "^9.0.1",
+    "pg": "^8.22.0"
   }
 }

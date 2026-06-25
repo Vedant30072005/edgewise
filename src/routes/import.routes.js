@@ -1,7 +1,7 @@
 /** Edgewise — /api/import routes (CSV bulk import) */
 const express = require('express');
 const multer = require('multer');
-const { db } = require('../db');
+const { get, run } = require('../db');
 const { requireAuth } = require('../auth');
 const { validateTrade } = require('../tradeValidator');
 
@@ -71,7 +71,7 @@ router.post('/trades', (req, res, next) => {
     if (err) return res.status(400).json({ error: err.message });
     next();
   });
-}, (req, res) => {
+}, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
 
   const text = req.file.buffer.toString('utf8');
@@ -93,45 +93,46 @@ router.post('/trades', (req, res, next) => {
   let importLimit = rows.length;
   if (req.user.plan === 'free') {
     const month = new Date().toISOString().slice(0, 7);
-    const used = db.prepare(`SELECT COUNT(*) c FROM trades WHERE user_id=? AND strftime('%Y-%m', created_at)=?`)
-      .get(req.user.id, month).c;
-    const available = Math.max(0, 30 - used);
+    const usedRow = await get(
+      `SELECT COUNT(*) AS c FROM trades WHERE user_id=$1 AND to_char(created_at, 'YYYY-MM')=$2`,
+      [req.user.id, month]
+    );
+    const available = Math.max(0, 30 - parseInt(usedRow.c));
     if (available === 0) {
       return res.status(402).json({ error: 'Free plan limit: 30 trades per month. Upgrade to Pro for unlimited imports.', code: 'PLAN_LIMIT' });
     }
     importLimit = Math.min(rows.length, available);
   }
 
-  const insertStmt = db.prepare(
-    `INSERT INTO trades (user_id, trade_date, symbol, side, entry_price, exit_price, quantity, risk_amount, setup_tag, mood, notes, pnl, r_multiple)
-     VALUES (@user_id, @trade_date, @symbol, @side, @entry_price, @exit_price, @quantity, @risk_amount, @setup_tag, @mood, @notes, @pnl, @r_multiple)`
-  );
-
   const imported = [];
   const skipped = [];
-  const get = (row, field) => (colMap[field] ? (row[colMap[field]] || '').toString().trim() : '');
+  const getVal = (row, field) => (colMap[field] ? (row[colMap[field]] || '').toString().trim() : '');
 
-  db.transaction(() => {
-    for (let i = 0; i < Math.min(rows.length, importLimit); i++) {
-      const row = rows[i];
-      const body = {
-        trade_date:  get(row, 'trade_date'),
-        symbol:      get(row, 'symbol'),
-        side:        get(row, 'side').toLowerCase(),
-        entry_price: get(row, 'entry_price'),
-        exit_price:  get(row, 'exit_price'),
-        quantity:    get(row, 'quantity'),
-        risk_amount: get(row, 'risk_amount'),
-        setup_tag:   get(row, 'setup_tag') || 'untagged',
-        mood:        get(row, 'mood') || 'neutral',
-        notes:       get(row, 'notes'),
-      };
-      const { trade, error } = validateTrade(body);
-      if (error) { skipped.push({ row: i + 2, reason: error }); continue; }
-      insertStmt.run({ ...trade, user_id: req.user.id });
-      imported.push(trade.symbol);
-    }
-  })();
+  for (let i = 0; i < Math.min(rows.length, importLimit); i++) {
+    const row = rows[i];
+    const body = {
+      trade_date:  getVal(row, 'trade_date'),
+      symbol:      getVal(row, 'symbol'),
+      side:        getVal(row, 'side').toLowerCase(),
+      entry_price: getVal(row, 'entry_price'),
+      exit_price:  getVal(row, 'exit_price'),
+      quantity:    getVal(row, 'quantity'),
+      risk_amount: getVal(row, 'risk_amount'),
+      setup_tag:   getVal(row, 'setup_tag') || 'untagged',
+      mood:        getVal(row, 'mood') || 'neutral',
+      notes:       getVal(row, 'notes'),
+    };
+    const { trade, error } = validateTrade(body);
+    if (error) { skipped.push({ row: i + 2, reason: error }); continue; }
+    await run(
+      `INSERT INTO trades (user_id, trade_date, symbol, side, entry_price, exit_price, quantity, risk_amount, setup_tag, mood, notes, pnl, r_multiple)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [req.user.id, trade.trade_date, trade.symbol, trade.side, trade.entry_price,
+       trade.exit_price, trade.quantity, trade.risk_amount, trade.setup_tag,
+       trade.mood, trade.notes, trade.pnl, trade.r_multiple]
+    );
+    imported.push(trade.symbol);
+  }
 
   const truncated = rows.length > importLimit ? rows.length - importLimit : 0;
   res.json({

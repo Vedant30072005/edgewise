@@ -3,7 +3,7 @@
  * Sessions are JWTs stored in an httpOnly cookie ("ew_token").
  */
 const jwt = require('jsonwebtoken');
-const { db } = require('./db');
+const { get } = require('./db');
 
 const COOKIE_NAME = 'ew_token';
 const TOKEN_TTL = '7d';
@@ -30,14 +30,15 @@ function clearSession(res) {
 }
 
 /** Attach req.user if a valid session cookie is present; never throws. */
-function attachUser(req, _res, next) {
+async function attachUser(req, _res, next) {
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) return next();
   try {
     const payload = jwt.verify(token, jwtSecret());
-    const user = db
-      .prepare('SELECT id, email, name, role, is_active, plan, email_verified FROM users WHERE id = ?')
-      .get(payload.sub);
+    const user = await get(
+      'SELECT id, email, name, role, is_active, plan, email_verified FROM users WHERE id = $1',
+      [payload.sub]
+    );
     if (user && user.is_active) req.user = user;
   } catch {
     /* invalid/expired token — treat as logged out */

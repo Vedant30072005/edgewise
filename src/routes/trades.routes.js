@@ -1,6 +1,6 @@
 /** Edgewise — /api/trades routes (per-user journal) */
 const express = require('express');
-const { db } = require('../db');
+const { all, get, run, pool } = require('../db');
 const { requireAuth } = require('../auth');
 const { csvCell } = require('../csv');
 const { groupByKey } = require('../analytics');
@@ -30,7 +30,6 @@ const MAX_CACHE_SIZE = 1000;  // cap entries to prevent unbounded memory growth
 
 function cacheStatsForUser(userId, stats) {
   statsCache.set(userId, { stats, timestamp: Date.now() });
-  // Evict oldest entries if cache exceeds max size
   if (statsCache.size > MAX_CACHE_SIZE) {
     const oldest = statsCache.keys().next().value;
     statsCache.delete(oldest);
@@ -40,9 +39,7 @@ function cacheStatsForUser(userId, stats) {
 function getCachedStats(userId) {
   const cached = statsCache.get(userId);
   if (!cached) return null;
-  // Return cache if still fresh (< TTL)
   if (Date.now() - cached.timestamp < CACHE_TTL_MS) return cached.stats;
-  // Expired: invalidate
   statsCache.delete(userId);
   return null;
 }
@@ -52,36 +49,40 @@ function invalidateStatsCache(userId) {
 }
 
 /* ── tier helper ──────────────────────────────────────────────── */
-function tradesThisMonth(userId) {
+async function tradesThisMonth(userId) {
   const month = new Date().toISOString().slice(0, 7); // YYYY-MM
-  return db.prepare(
-    `SELECT COUNT(*) c FROM trades WHERE user_id=? AND strftime('%Y-%m', created_at)=?`
-  ).get(userId, month).c;
+  const row = await get(
+    `SELECT COUNT(*) AS c FROM trades WHERE user_id=$1 AND to_char(created_at, 'YYYY-MM')=$2`,
+    [userId, month]
+  );
+  return parseInt(row.c);
 }
 
 /* ── risk guard ───────────────────────────────────────────────── */
-function checkRiskRules(userId, trade) {
-  const s = db.prepare('SELECT * FROM risk_settings WHERE user_id=?').get(userId);
+async function checkRiskRules(userId, trade) {
+  const s = await get('SELECT * FROM risk_settings WHERE user_id=$1', [userId]);
   if (!s) return [];
   const found = [];
   if (s.max_risk_amount && trade.risk_amount > s.max_risk_amount) {
     found.push({ rule: 'max-risk', detail: `Risked ${trade.risk_amount} against your per-trade cap of ${s.max_risk_amount}.` });
   }
   if (s.daily_loss_limit_r) {
-    const dayR = db
-      .prepare('SELECT COALESCE(SUM(r_multiple),0) r FROM trades WHERE user_id=? AND trade_date=?')
-      .get(userId, trade.trade_date).r;
-    const after = dayR + trade.r_multiple;
+    const dayRow = await get(
+      'SELECT COALESCE(SUM(r_multiple),0) AS r FROM trades WHERE user_id=$1 AND trade_date=$2',
+      [userId, trade.trade_date]
+    );
+    const after = parseFloat(dayRow.r) + trade.r_multiple;
     if (after < -s.daily_loss_limit_r) {
       found.push({ rule: 'daily-loss-limit', detail: `Day at ${after.toFixed(2)}R after this trade; your stop-day limit is -${s.daily_loss_limit_r}R.` });
     }
   }
   if (s.cooldown_minutes) {
-    const prev = db
-      .prepare(`SELECT r_multiple,
-                  CAST((julianday('now') - julianday(created_at)) * 24 * 60 AS INTEGER) AS mins_ago
-                FROM trades WHERE user_id=? ORDER BY id DESC LIMIT 1`)
-      .get(userId);
+    const prev = await get(
+      `SELECT r_multiple,
+              EXTRACT(EPOCH FROM (NOW() - created_at))::INTEGER / 60 AS mins_ago
+       FROM trades WHERE user_id=$1 ORDER BY id DESC LIMIT 1`,
+      [userId]
+    );
     if (prev && prev.r_multiple < 0) {
       const mins = prev.mins_ago;
       if (mins >= 0 && mins < s.cooldown_minutes) {
@@ -93,28 +94,32 @@ function checkRiskRules(userId, trade) {
 }
 
 /* ── list trades (filtered + paginated) ──────────────────────── */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const { symbol, mood, setup, from, to, notes, limit = 200, offset = 0 } = req.query;
-  let where = 'WHERE user_id=?';
+  let where = 'WHERE user_id=$1';
   const params = [req.user.id];
-  if (symbol) { where += ' AND symbol LIKE ?'; params.push(`%${symbol.toString().trim().toUpperCase()}%`); }
-  if (mood && MOODS.includes(mood)) { where += ' AND mood=?'; params.push(mood); }
-  if (setup) { where += ' AND setup_tag=?'; params.push(setup.toString().trim().toLowerCase()); }
-  if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { where += ' AND trade_date>=?'; params.push(from); }
-  if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) { where += ' AND trade_date<=?'; params.push(to); }
-  if (notes) { where += ' AND notes LIKE ?'; params.push(`%${notes.toString().trim()}%`); }
-  const total = db.prepare(`SELECT COUNT(*) n FROM trades ${where}`).get(...params).n;
+  let p = 2;
+  if (symbol) { where += ` AND symbol LIKE $${p++}`; params.push(`%${symbol.toString().trim().toUpperCase()}%`); }
+  if (mood && MOODS.includes(mood)) { where += ` AND mood=$${p++}`; params.push(mood); }
+  if (setup) { where += ` AND setup_tag=$${p++}`; params.push(setup.toString().trim().toLowerCase()); }
+  if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { where += ` AND trade_date>=$${p++}`; params.push(from); }
+  if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) { where += ` AND trade_date<=$${p++}`; params.push(to); }
+  if (notes) { where += ` AND notes LIKE $${p++}`; params.push(`%${notes.toString().trim()}%`); }
+
   const lim = Math.min(Math.max(parseInt(limit) || 200, 1), 500);
   const off = Math.max(parseInt(offset) || 0, 0);
-  const rows = db.prepare(`SELECT * FROM trades ${where} ORDER BY trade_date ASC, id ASC LIMIT ? OFFSET ?`)
-    .all(...params, lim, off);
-  res.json({ trades: rows, total });
+
+  const [countRow, rows] = await Promise.all([
+    get(`SELECT COUNT(*) AS n FROM trades ${where}`, params),
+    all(`SELECT * FROM trades ${where} ORDER BY trade_date ASC, id ASC LIMIT $${p} OFFSET $${p+1}`, [...params, lim, off]),
+  ]);
+  res.json({ trades: rows, total: parseInt(countRow.n) });
 });
 
 /* ── create ───────────────────────────────────────────────────── */
-router.post('/', createTradeLimiter, (req, res) => {
+router.post('/', createTradeLimiter, async (req, res) => {
   /* Tier enforcement: free plan = 30 trades per calendar month. */
-  if (req.user.plan === 'free' && tradesThisMonth(req.user.id) >= 30) {
+  if (req.user.plan === 'free' && await tradesThisMonth(req.user.id) >= 30) {
     return res.status(402).json({
       error: 'Free plan limit: 30 trades per month. Upgrade to Pro for unlimited logging.',
       code: 'PLAN_LIMIT',
@@ -122,85 +127,93 @@ router.post('/', createTradeLimiter, (req, res) => {
   }
   const { trade, error } = validateTrade(req.body || {});
   if (error) return res.status(400).json({ error });
-  const violations = checkRiskRules(req.user.id, trade);
-  const info = db.prepare(
+  const violations = await checkRiskRules(req.user.id, trade);
+  const result = await run(
     `INSERT INTO trades
      (user_id, trade_date, symbol, side, entry_price, exit_price, quantity,
       risk_amount, setup_tag, mood, notes, pnl, r_multiple)
-     VALUES (@user_id, @trade_date, @symbol, @side, @entry_price, @exit_price, @quantity,
-             @risk_amount, @setup_tag, @mood, @notes, @pnl, @r_multiple)`
-  ).run({ ...trade, user_id: req.user.id });
-  const insertV = db.prepare(`INSERT INTO violations (user_id, trade_id, rule, detail) VALUES (?,?,?,?)`);
-  for (const v of violations) insertV.run(req.user.id, info.lastInsertRowid, v.rule, v.detail);
-  const row = db.prepare('SELECT * FROM trades WHERE id=?').get(info.lastInsertRowid);
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+    [req.user.id, trade.trade_date, trade.symbol, trade.side, trade.entry_price,
+     trade.exit_price, trade.quantity, trade.risk_amount, trade.setup_tag,
+     trade.mood, trade.notes, trade.pnl, trade.r_multiple]
+  );
+  const tradeId = result.rows[0].id;
+  if (violations.length) {
+    await Promise.all(violations.map(v =>
+      run('INSERT INTO violations (user_id, trade_id, rule, detail) VALUES ($1,$2,$3,$4)',
+        [req.user.id, tradeId, v.rule, v.detail])
+    ));
+  }
+  const row = await get('SELECT * FROM trades WHERE id=$1', [tradeId]);
   invalidateStatsCache(req.user.id);
   res.status(201).json({ trade: row, violations });
 });
 
 /* ── update ───────────────────────────────────────────────────── */
-router.put('/:id', updateTradeLimiter, (req, res) => {
-  const existing = db.prepare('SELECT id FROM trades WHERE id=? AND user_id=?').get(req.params.id, req.user.id);
+router.put('/:id', updateTradeLimiter, async (req, res) => {
+  const existing = await get('SELECT id FROM trades WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
   if (!existing) return res.status(404).json({ error: 'Trade not found.' });
   const { trade, error } = validateTrade(req.body || {});
   if (error) return res.status(400).json({ error });
-  db.prepare(
-    `UPDATE trades SET trade_date=@trade_date, symbol=@symbol, side=@side,
-       entry_price=@entry_price, exit_price=@exit_price, quantity=@quantity,
-       risk_amount=@risk_amount, setup_tag=@setup_tag, mood=@mood, notes=@notes,
-       pnl=@pnl, r_multiple=@r_multiple WHERE id=@id AND user_id=@user_id`
-  ).run({ ...trade, id: existing.id, user_id: req.user.id });
-  const row = db.prepare('SELECT * FROM trades WHERE id=?').get(existing.id);
+  await run(
+    `UPDATE trades SET trade_date=$1, symbol=$2, side=$3,
+       entry_price=$4, exit_price=$5, quantity=$6,
+       risk_amount=$7, setup_tag=$8, mood=$9, notes=$10,
+       pnl=$11, r_multiple=$12 WHERE id=$13 AND user_id=$14`,
+    [trade.trade_date, trade.symbol, trade.side, trade.entry_price, trade.exit_price,
+     trade.quantity, trade.risk_amount, trade.setup_tag, trade.mood, trade.notes,
+     trade.pnl, trade.r_multiple, existing.id, req.user.id]
+  );
+  const row = await get('SELECT * FROM trades WHERE id=$1', [existing.id]);
   invalidateStatsCache(req.user.id);
   res.json({ trade: row });
 });
 
 /* ── delete ───────────────────────────────────────────────────── */
-router.delete('/:id', (req, res) => {
-  const info = db.prepare('DELETE FROM trades WHERE id=? AND user_id=?').run(req.params.id, req.user.id);
-  if (!info.changes) return res.status(404).json({ error: 'Trade not found.' });
+router.delete('/:id', async (req, res) => {
+  const result = await run('DELETE FROM trades WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
+  if (!result.rowCount) return res.status(404).json({ error: 'Trade not found.' });
   invalidateStatsCache(req.user.id);
   res.json({ ok: true });
 });
 
 /* ── stats (always all-time, unfiltered) ─────────────────────── */
-/**
- * Compute comprehensive trade statistics: equity curve, win rate, expectancy, max drawdown, etc.
- * @param {number} userId
- * @returns {Object} Stats object with curve, metrics, breakdown by setup/mood
- */
-function computeStats(userId) {
-  const rows = db
-    .prepare(`SELECT trade_date, r_multiple, pnl, setup_tag, mood FROM trades WHERE user_id=? ORDER BY trade_date ASC, id ASC`)
-    .all(userId);
+async function computeStats(userId) {
+  const rows = await all(
+    `SELECT trade_date, r_multiple, pnl, setup_tag, mood FROM trades WHERE user_id=$1 ORDER BY trade_date ASC, id ASC`,
+    [userId]
+  );
   const n = rows.length;
   let equity = 0, peak = 0, maxDd = 0, wins = 0, grossWin = 0, grossLoss = 0;
   const curve = [0];
   for (const r of rows) {
-    equity += r.r_multiple;
+    const rm = parseFloat(r.r_multiple);
+    equity += rm;
     curve.push(Math.round(equity * 100) / 100);
     peak = Math.max(peak, equity);
     maxDd = Math.max(maxDd, peak - equity);
-    if (r.r_multiple > 0) { wins += 1; grossWin += r.r_multiple; }
-    else grossLoss += Math.abs(r.r_multiple);
+    if (rm > 0) { wins += 1; grossWin += rm; }
+    else grossLoss += Math.abs(rm);
   }
 
   /* Current consecutive streak. */
   let streak = { type: null, count: 0 };
   if (n > 0) {
-    const isLastWin = rows[n - 1].r_multiple > 0;
+    const isLastWin = parseFloat(rows[n - 1].r_multiple) > 0;
     streak.type = isLastWin ? 'win' : 'loss';
     for (let i = n - 1; i >= 0; i--) {
-      if ((rows[i].r_multiple > 0) === isLastWin) streak.count++;
+      if ((parseFloat(rows[i].r_multiple) > 0) === isLastWin) streak.count++;
       else break;
     }
   }
 
-  /* Monthly net R aggregation (for performance bar chart). */
+  /* Monthly net R aggregation. */
   const monthMap = new Map();
   for (const r of rows) {
     const mo = r.trade_date.slice(0, 7);
     const m = monthMap.get(mo) || { month: mo, trades: 0, totalR: 0, wins: 0 };
-    m.trades += 1; m.totalR += r.r_multiple; if (r.r_multiple > 0) m.wins += 1;
+    const rm = parseFloat(r.r_multiple);
+    m.trades += 1; m.totalR += rm; if (rm > 0) m.wins += 1;
     monthMap.set(mo, m);
   }
   const byMonth = [...monthMap.values()]
@@ -222,23 +235,20 @@ function computeStats(userId) {
   };
 }
 
-router.get('/stats', (req, res) => {
-  // Check cache first: if recent, return cached stats
+router.get('/stats', async (req, res) => {
   const cached = getCachedStats(req.user.id);
-  if (cached) {
-    return res.json({ ...cached, _cached: true });
-  }
-  // Not cached: compute and store
-  const stats = computeStats(req.user.id);
+  if (cached) return res.json({ ...cached, _cached: true });
+  const stats = await computeStats(req.user.id);
   cacheStatsForUser(req.user.id, stats);
   res.json(stats);
 });
 
 /* ── violations ───────────────────────────────────────────────── */
-router.get('/violations', (req, res) => {
-  const rows = db
-    .prepare(`SELECT id, trade_id, rule, detail, created_at FROM violations WHERE user_id=? ORDER BY id DESC LIMIT 50`)
-    .all(req.user.id);
+router.get('/violations', async (req, res) => {
+  const rows = await all(
+    `SELECT id, trade_id, rule, detail, created_at FROM violations WHERE user_id=$1 ORDER BY id DESC LIMIT 50`,
+    [req.user.id]
+  );
   res.json({ violations: rows });
 });
 
@@ -259,18 +269,7 @@ async function callAIDebrief({ n, netR, winRate, violations7, worstSetup, bestSe
   const tradeLog = trades7.map(t =>
     `${t.trade_date} ${t.symbol} ${t.side.toUpperCase()} | ${t.setup_tag} | ${t.mood} | ${t.r_multiple >= 0 ? '+' : ''}${t.r_multiple}R${t.notes ? ` | "${t.notes.slice(0, 80)}"` : ''}`
   ).join('\n');
-  const prompt = `You are a concise trading psychology coach. Trader's last 7 days:
-
-SUMMARY: ${n} trades | ${netR >= 0 ? '+' : ''}${netR}R net | ${winRate}% win rate
-VIOLATIONS: ${violations7.length ? violations7.map(v => `${v.rule} ×${v.c}`).join(', ') : 'none'}
-WORST SETUP: ${worstSetup ? `"${worstSetup.key}" ${worstSetup.totalR}R over ${worstSetup.trades} trades` : 'none'}
-BEST SETUP: ${bestSetup ? `"${bestSetup.key}" +${bestSetup.totalR}R over ${bestSetup.trades} trades` : 'none'}
-WORST MOOD: ${worstMood ? `"${worstMood.key}" ${worstMood.totalR}R over ${worstMood.trades} trades` : 'none'}
-
-TRADE LOG:
-${tradeLog || '(no trades this week)'}
-
-Write ONE action item for next week. 2 sentences max. Direct, specific, psychologically sharp — surface patterns the trader might miss (mood-setup correlations, note themes, timing). No preamble, no sign-off.`;
+  const prompt = `You are a concise trading psychology coach. Trader's last 7 days:\n\nSUMMARY: ${n} trades | ${netR >= 0 ? '+' : ''}${netR}R net | ${winRate}% win rate\nVIOLATIONS: ${violations7.length ? violations7.map(v => `${v.rule} ×${v.c}`).join(', ') : 'none'}\nWORST SETUP: ${worstSetup ? `"${worstSetup.key}" ${worstSetup.totalR}R over ${worstSetup.trades} trades` : 'none'}\nBEST SETUP: ${bestSetup ? `"${bestSetup.key}" +${bestSetup.totalR}R over ${bestSetup.trades} trades` : 'none'}\nWORST MOOD: ${worstMood ? `"${worstMood.key}" ${worstMood.totalR}R over ${worstMood.trades} trades` : 'none'}\n\nTRADE LOG:\n${tradeLog || '(no trades this week)'}\n\nWrite ONE action item for next week. 2 sentences max. Direct, specific, psychologically sharp. No preamble, no sign-off.`;
   try {
     const msg = await client.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -295,16 +294,20 @@ function algorithmicAction({ n, revengeCount, worstMood, worstSetup, untagged, b
 }
 
 router.get('/debrief', async (req, res) => {
-  const trades7 = db
-    .prepare(`SELECT trade_date, symbol, side, r_multiple, setup_tag, mood, notes FROM trades
-              WHERE user_id=? AND trade_date>=date('now','-6 days') ORDER BY trade_date ASC, id ASC`)
-    .all(req.user.id);
-  const violations7 = db
-    .prepare(`SELECT rule, COUNT(*) c FROM violations WHERE user_id=? AND created_at>=datetime('now','-7 days') GROUP BY rule`)
-    .all(req.user.id);
+  const [trades7, violations7] = await Promise.all([
+    all(
+      `SELECT trade_date, symbol, side, r_multiple, setup_tag, mood, notes FROM trades
+       WHERE user_id=$1 AND trade_date>=CURRENT_DATE - INTERVAL '6 days' ORDER BY trade_date ASC, id ASC`,
+      [req.user.id]
+    ),
+    all(
+      `SELECT rule, COUNT(*) AS c FROM violations WHERE user_id=$1 AND created_at>=NOW() - INTERVAL '7 days' GROUP BY rule`,
+      [req.user.id]
+    ),
+  ]);
   const n = trades7.length;
-  const netR = Math.round(trades7.reduce((a, t) => a + t.r_multiple, 0) * 100) / 100;
-  const wins = trades7.filter(t => t.r_multiple > 0).length;
+  const netR = Math.round(trades7.reduce((a, t) => a + parseFloat(t.r_multiple), 0) * 100) / 100;
+  const wins = trades7.filter(t => parseFloat(t.r_multiple) > 0).length;
   const winRate = n ? Math.round((wins / n) * 1000) / 10 : 0;
   const bySetup = groupByKey(trades7, 'setup_tag');
   const byMood = groupByKey(trades7, 'mood');
@@ -320,10 +323,12 @@ router.get('/debrief', async (req, res) => {
 });
 
 /* ── CSV export ───────────────────────────────────────────────── */
-router.get('/export.csv', (req, res) => {
-  const rows = db
-    .prepare(`SELECT trade_date, symbol, side, entry_price, exit_price, quantity, risk_amount, setup_tag, mood, pnl, r_multiple, notes FROM trades WHERE user_id=? ORDER BY trade_date ASC, id ASC`)
-    .all(req.user.id);
+router.get('/export.csv', async (req, res) => {
+  const rows = await all(
+    `SELECT trade_date, symbol, side, entry_price, exit_price, quantity, risk_amount, setup_tag, mood, pnl, r_multiple, notes
+     FROM trades WHERE user_id=$1 ORDER BY trade_date ASC, id ASC`,
+    [req.user.id]
+  );
   const header = 'date,symbol,side,entry,exit,qty,risk,setup,mood,pnl,r_multiple,notes';
   const body = rows.map(r => [r.trade_date, r.symbol, r.side, r.entry_price, r.exit_price, r.quantity,
     r.risk_amount, r.setup_tag, r.mood, r.pnl, r.r_multiple, r.notes].map(csvCell).join(',')).join('\n');

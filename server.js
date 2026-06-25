@@ -7,7 +7,7 @@ const path = require('path');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 
-const { seedAdmin } = require('./src/db');
+const { initSchema, seedAdmin, pool } = require('./src/db');
 const { attachUser } = require('./src/auth');
 const { info, error: logError } = require('./src/logger');
 const authRoutes = require('./src/routes/auth.routes');
@@ -16,7 +16,7 @@ const adminRoutes = require('./src/routes/admin.routes');
 const settingsRoutes = require('./src/routes/settings.routes');
 const importRoutes = require('./src/routes/import.routes');
 
-seedAdmin();
+// Schema and admin seed run async on startup
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -74,12 +74,10 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/import', importRoutes);
 
-/* Health check for hosting platforms (Render, Railway, etc.) */
-app.get('/health', (req, res) => {
+/* Health check for hosting platforms (Render, Railway, Vercel, etc.) */
+app.get('/health', async (req, res) => {
   try {
-    const { db } = require('./src/db');
-    // Quick DB ping to verify connection
-    db.prepare('SELECT 1').get();
+    await pool.query('SELECT 1');
     res.json({ status: 'ok', uptime: process.uptime() });
   } catch (err) {
     logError('Health check failed', { reason: err.message });
@@ -144,23 +142,27 @@ app.use((_req, res) => res.status(404).sendFile(pub('index.html')));
 module.exports = app;
 
 if (require.main === module) {
-  const server = app.listen(PORT, () => {
-    info('Server started', { port: PORT, env: isProd ? 'production' : 'development' });
-    console.log(`[edgewise] running at http://localhost:${PORT}`);
-    console.log('[edgewise] landing: /   app: /app   admin: /admin');
-  });
-
-  // Graceful shutdown on SIGTERM (load balancer drain, Render/Railway redeploy)
-  process.on('SIGTERM', () => {
-    info('SIGTERM received, shutting down gracefully...');
-    server.close(() => {
-      info('Server closed');
-      process.exit(0);
+  (async () => {
+    await initSchema();
+    await seedAdmin();
+    const server = app.listen(PORT, () => {
+      info('Server started', { port: PORT, env: isProd ? 'production' : 'development' });
+      console.log(`[edgewise] running at http://localhost:${PORT}`);
+      console.log('[edgewise] landing: /   app: /app   admin: /admin');
     });
-    // Force exit after 10 seconds
-    setTimeout(() => {
-      logError('Forced shutdown after 10s timeout');
-      process.exit(1);
-    }, 10000);
-  });
+
+    // Graceful shutdown on SIGTERM (load balancer drain, Render/Railway redeploy)
+    process.on('SIGTERM', () => {
+      info('SIGTERM received, shutting down gracefully...');
+      server.close(() => {
+        info('Server closed');
+        process.exit(0);
+      });
+      // Force exit after 10 seconds
+      setTimeout(() => {
+        logError('Forced shutdown after 10s timeout');
+        process.exit(1);
+      }, 10000);
+    });
+  })();
 }
