@@ -9,6 +9,7 @@ const cookieParser = require('cookie-parser');
 
 const { seedAdmin } = require('./src/db');
 const { attachUser } = require('./src/auth');
+const { info, error: logError } = require('./src/logger');
 const authRoutes = require('./src/routes/auth.routes');
 const tradeRoutes = require('./src/routes/trades.routes');
 const adminRoutes = require('./src/routes/admin.routes');
@@ -31,6 +32,23 @@ app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // Content Security Policy: restricts resource origins to same-site.
+  // unsafe-inline for style is required for the inline style attributes used
+  // throughout the HTML; scripts are strictly same-origin only.
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "connect-src 'self'",
+      "font-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ')
+  );
   if (isProd) {
     res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
     // Redirect only when the proxy explicitly reports the original scheme as
@@ -55,6 +73,24 @@ app.use('/api/trades', tradeRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/import', importRoutes);
+
+/* Health check for hosting platforms (Render, Railway, etc.) */
+app.get('/health', (req, res) => {
+  try {
+    const { db } = require('./src/db');
+    // Quick DB ping to verify connection
+    db.prepare('SELECT 1').get();
+    res.json({ status: 'ok', uptime: process.uptime() });
+  } catch (err) {
+    logError('Health check failed', { reason: err.message });
+    res.status(503).json({ status: 'error', reason: err.message, uptime: process.uptime() });
+  }
+});
+
+/* API Documentation (Swagger/OpenAPI) */
+app.get('/api/docs', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'api-docs.html'));
+});
 
 /* ---------- Pages ---------- */
 const pub = (f) => path.join(__dirname, 'public', f);
@@ -82,11 +118,49 @@ app.get('/reset-password', (req, res) => res.sendFile(pub('reset-password.html')
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+/* ── Express error handler — catches unhandled errors in routes ──── */
+/* Must have 4 params so Express recognises it as error middleware. */
+app.use((err, req, res, _next) => {
+  // Multer file-size and file-type errors surface here
+  const status = err.status || err.statusCode || 500;
+  const message = status < 500 ? err.message : 'Something went wrong.';
+  logError('Unhandled route error', {
+    method: req.method,
+    path: req.originalUrl,
+    status,
+    reason: err.message,
+    ...(isProd ? {} : { stack: err.stack }),
+  });
+  if (!res.headersSent) {
+    res.status(status).json({ error: message });
+  }
+});
+
 /* JSON 404 for unknown API routes; pages fall back to landing */
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 app.use((_req, res) => res.status(404).sendFile(pub('index.html')));
 
-app.listen(PORT, () => {
-  console.log(`[edgewise] running at http://localhost:${PORT}`);
-  console.log('[edgewise] landing: /   app: /app   admin: /admin');
-});
+// Export for testing; listen only if this is the main module
+module.exports = app;
+
+if (require.main === module) {
+  const server = app.listen(PORT, () => {
+    info('Server started', { port: PORT, env: isProd ? 'production' : 'development' });
+    console.log(`[edgewise] running at http://localhost:${PORT}`);
+    console.log('[edgewise] landing: /   app: /app   admin: /admin');
+  });
+
+  // Graceful shutdown on SIGTERM (load balancer drain, Render/Railway redeploy)
+  process.on('SIGTERM', () => {
+    info('SIGTERM received, shutting down gracefully...');
+    server.close(() => {
+      info('Server closed');
+      process.exit(0);
+    });
+    // Force exit after 10 seconds
+    setTimeout(() => {
+      logError('Forced shutdown after 10s timeout');
+      process.exit(1);
+    }, 10000);
+  });
+}

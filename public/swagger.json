@@ -1,0 +1,367 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Edgewise Trading Journal API",
+    "description": "REST API for logging and analyzing trading journal entries with risk management features",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Edgewise Support"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000",
+      "description": "Development server"
+    },
+    {
+      "url": "https://edgewise.example.com",
+      "description": "Production server"
+    }
+  ],
+  "paths": {
+    "/api/auth/register": {
+      "post": {
+        "summary": "Register new account",
+        "tags": ["Authentication"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "name": { "type": "string" },
+                  "password": { "type": "string", "minLength": 8 }
+                },
+                "required": ["email", "name", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "integer" },
+                        "email": { "type": "string" },
+                        "name": { "type": "string" },
+                        "role": { "type": "string" },
+                        "email_verified": { "type": "boolean" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid input" },
+          "409": { "description": "Email already exists" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "Login with email and password",
+        "tags": ["Authentication"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string" }
+                },
+                "required": ["email", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Login successful" },
+          "401": { "description": "Invalid credentials" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "summary": "Logout current user",
+        "tags": ["Authentication"],
+        "responses": {
+          "200": { "description": "Logout successful" }
+        }
+      }
+    },
+    "/api/auth/forgot-password": {
+      "post": {
+        "summary": "Request password reset email",
+        "tags": ["Authentication"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "format": "email" }
+                },
+                "required": ["email"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "If email exists, reset link sent" },
+          "400": { "description": "Invalid email format" }
+        }
+      }
+    },
+    "/api/auth/reset-password": {
+      "post": {
+        "summary": "Reset password with token",
+        "tags": ["Authentication"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": { "type": "string" },
+                  "password": { "type": "string", "minLength": 8 }
+                },
+                "required": ["token", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Password reset successful" },
+          "400": { "description": "Invalid or expired token" }
+        }
+      }
+    },
+    "/api/trades": {
+      "get": {
+        "summary": "List trades with filters and pagination",
+        "tags": ["Trades"],
+        "parameters": [
+          { "name": "symbol", "in": "query", "schema": { "type": "string" } },
+          { "name": "mood", "in": "query", "schema": { "type": "string", "enum": ["calm", "neutral", "fomo", "revenge", "fear", "overconfident"] } },
+          { "name": "setup", "in": "query", "schema": { "type": "string" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 200, "maximum": 500 } },
+          { "name": "offset", "in": "query", "schema": { "type": "integer", "default": 0 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of trades",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "trades": { "type": "array" },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Log a new trade",
+        "tags": ["Trades"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "trade_date": { "type": "string", "format": "date" },
+                  "symbol": { "type": "string" },
+                  "side": { "type": "string", "enum": ["long", "short"] },
+                  "entry_price": { "type": "number", "minimum": 0 },
+                  "exit_price": { "type": "number", "minimum": 0 },
+                  "quantity": { "type": "number", "minimum": 0 },
+                  "risk_amount": { "type": "number", "minimum": 0 },
+                  "setup_tag": { "type": "string" },
+                  "mood": { "type": "string", "enum": ["calm", "neutral", "fomo", "revenge", "fear", "overconfident"] },
+                  "notes": { "type": "string" }
+                },
+                "required": ["trade_date", "symbol", "side", "entry_price", "exit_price", "quantity", "risk_amount"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Trade created (P&L and R auto-calculated)" },
+          "400": { "description": "Validation error" },
+          "402": { "description": "Plan limit exceeded" }
+        }
+      }
+    },
+    "/api/trades/{id}": {
+      "put": {
+        "summary": "Update a trade",
+        "tags": ["Trades"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Trade updated" },
+          "404": { "description": "Trade not found" }
+        }
+      },
+      "delete": {
+        "summary": "Delete a trade",
+        "tags": ["Trades"],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "Trade deleted" },
+          "404": { "description": "Trade not found" }
+        }
+      }
+    },
+    "/api/trades/stats": {
+      "get": {
+        "summary": "Get comprehensive trade statistics (cached)",
+        "tags": ["Trades"],
+        "responses": {
+          "200": {
+            "description": "Trade statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "totalTrades": { "type": "integer" },
+                    "netR": { "type": "number" },
+                    "winRate": { "type": "number" },
+                    "expectancy": { "type": "number" },
+                    "maxDrawdown": { "type": "number" },
+                    "profitFactor": { "type": "number" },
+                    "winStreak": { "type": "integer" },
+                    "lossStreak": { "type": "integer" },
+                    "byMonth": { "type": "array" },
+                    "bySetup": { "type": "array" },
+                    "byMood": { "type": "array" },
+                    "_cached": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trades/export.csv": {
+      "get": {
+        "summary": "Export all trades as CSV",
+        "tags": ["Trades"],
+        "responses": {
+          "200": { "description": "CSV file download" }
+        }
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "summary": "Get user risk settings",
+        "tags": ["Settings"],
+        "responses": {
+          "200": { "description": "Risk settings" }
+        }
+      },
+      "put": {
+        "summary": "Update risk settings",
+        "tags": ["Settings"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "daily_loss_limit_r": { "type": "number" },
+                  "max_risk_amount": { "type": "number" },
+                  "cooldown_minutes": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Settings updated" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check endpoint",
+        "tags": ["System"],
+        "responses": {
+          "200": { "description": "Service healthy" },
+          "503": { "description": "Service unavailable" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookies": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "ew_token"
+      }
+    },
+    "schemas": {
+      "Trade": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "user_id": { "type": "integer" },
+          "trade_date": { "type": "string", "format": "date" },
+          "symbol": { "type": "string" },
+          "side": { "type": "string", "enum": ["long", "short"] },
+          "entry_price": { "type": "number" },
+          "exit_price": { "type": "number" },
+          "quantity": { "type": "number" },
+          "pnl": { "type": "number", "description": "Profit/Loss in currency" },
+          "r_multiple": { "type": "number", "description": "Profit/Loss in R units (risk_amount)" },
+          "risk_amount": { "type": "number" },
+          "setup_tag": { "type": "string" },
+          "mood": { "type": "string" },
+          "notes": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "security": [
+    { "cookies": [] }
+  ]
+}

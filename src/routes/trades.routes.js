@@ -5,9 +5,51 @@ const { requireAuth } = require('../auth');
 const { csvCell } = require('../csv');
 const { groupByKey } = require('../analytics');
 const { MOODS, validateTrade } = require('../tradeValidator');
+const { createMiddleware: rateLimiter } = require('../rateLimiter');
 
 const router = express.Router();
 router.use(requireAuth);
+
+/* ── Rate limiters ─────────────────────────────────────────────── */
+const createTradeLimiter = rateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 100,
+  message: 'Too many trades created. Limit: 100 per hour.',
+});
+
+const updateTradeLimiter = rateLimiter({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 200,
+  message: 'Too many trade updates. Limit: 200 per hour.',
+});
+
+/* ── STATS CACHE: invalidate on trade create/update/delete ── */
+const statsCache = new Map(); // userId → { stats, timestamp }
+const CACHE_TTL_MS = 300000; // 5 minutes
+const MAX_CACHE_SIZE = 1000;  // cap entries to prevent unbounded memory growth
+
+function cacheStatsForUser(userId, stats) {
+  statsCache.set(userId, { stats, timestamp: Date.now() });
+  // Evict oldest entries if cache exceeds max size
+  if (statsCache.size > MAX_CACHE_SIZE) {
+    const oldest = statsCache.keys().next().value;
+    statsCache.delete(oldest);
+  }
+}
+
+function getCachedStats(userId) {
+  const cached = statsCache.get(userId);
+  if (!cached) return null;
+  // Return cache if still fresh (< TTL)
+  if (Date.now() - cached.timestamp < CACHE_TTL_MS) return cached.stats;
+  // Expired: invalidate
+  statsCache.delete(userId);
+  return null;
+}
+
+function invalidateStatsCache(userId) {
+  statsCache.delete(userId);
+}
 
 /* ── tier helper ──────────────────────────────────────────────── */
 function tradesThisMonth(userId) {
@@ -70,7 +112,7 @@ router.get('/', (req, res) => {
 });
 
 /* ── create ───────────────────────────────────────────────────── */
-router.post('/', (req, res) => {
+router.post('/', createTradeLimiter, (req, res) => {
   /* Tier enforcement: free plan = 30 trades per calendar month. */
   if (req.user.plan === 'free' && tradesThisMonth(req.user.id) >= 30) {
     return res.status(402).json({
@@ -91,11 +133,12 @@ router.post('/', (req, res) => {
   const insertV = db.prepare(`INSERT INTO violations (user_id, trade_id, rule, detail) VALUES (?,?,?,?)`);
   for (const v of violations) insertV.run(req.user.id, info.lastInsertRowid, v.rule, v.detail);
   const row = db.prepare('SELECT * FROM trades WHERE id=?').get(info.lastInsertRowid);
+  invalidateStatsCache(req.user.id);
   res.status(201).json({ trade: row, violations });
 });
 
 /* ── update ───────────────────────────────────────────────────── */
-router.put('/:id', (req, res) => {
+router.put('/:id', updateTradeLimiter, (req, res) => {
   const existing = db.prepare('SELECT id FROM trades WHERE id=? AND user_id=?').get(req.params.id, req.user.id);
   if (!existing) return res.status(404).json({ error: 'Trade not found.' });
   const { trade, error } = validateTrade(req.body || {});
@@ -107,6 +150,7 @@ router.put('/:id', (req, res) => {
        pnl=@pnl, r_multiple=@r_multiple WHERE id=@id AND user_id=@user_id`
   ).run({ ...trade, id: existing.id, user_id: req.user.id });
   const row = db.prepare('SELECT * FROM trades WHERE id=?').get(existing.id);
+  invalidateStatsCache(req.user.id);
   res.json({ trade: row });
 });
 
@@ -114,14 +158,20 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const info = db.prepare('DELETE FROM trades WHERE id=? AND user_id=?').run(req.params.id, req.user.id);
   if (!info.changes) return res.status(404).json({ error: 'Trade not found.' });
+  invalidateStatsCache(req.user.id);
   res.json({ ok: true });
 });
 
 /* ── stats (always all-time, unfiltered) ─────────────────────── */
-router.get('/stats', (req, res) => {
+/**
+ * Compute comprehensive trade statistics: equity curve, win rate, expectancy, max drawdown, etc.
+ * @param {number} userId
+ * @returns {Object} Stats object with curve, metrics, breakdown by setup/mood
+ */
+function computeStats(userId) {
   const rows = db
     .prepare(`SELECT trade_date, r_multiple, pnl, setup_tag, mood FROM trades WHERE user_id=? ORDER BY trade_date ASC, id ASC`)
-    .all(req.user.id);
+    .all(userId);
   const n = rows.length;
   let equity = 0, peak = 0, maxDd = 0, wins = 0, grossWin = 0, grossLoss = 0;
   const curve = [0];
@@ -157,7 +207,7 @@ router.get('/stats', (req, res) => {
     .sort((a, b) => a.month.localeCompare(b.month))
     .map(m => ({ ...m, totalR: Math.round(m.totalR * 100) / 100 }));
 
-  res.json({
+  return {
     totalTrades: n,
     netR: Math.round(equity * 100) / 100,
     winRate: n ? Math.round((wins / n) * 1000) / 10 : 0,
@@ -169,7 +219,19 @@ router.get('/stats', (req, res) => {
     byMonth,
     bySetup: groupByKey(rows, 'setup_tag'),
     byMood: groupByKey(rows, 'mood'),
-  });
+  };
+}
+
+router.get('/stats', (req, res) => {
+  // Check cache first: if recent, return cached stats
+  const cached = getCachedStats(req.user.id);
+  if (cached) {
+    return res.json({ ...cached, _cached: true });
+  }
+  // Not cached: compute and store
+  const stats = computeStats(req.user.id);
+  cacheStatsForUser(req.user.id, stats);
+  res.json(stats);
 });
 
 /* ── violations ───────────────────────────────────────────────── */

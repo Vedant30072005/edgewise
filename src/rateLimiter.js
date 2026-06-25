@@ -12,6 +12,11 @@ class MemoryStore {
 
   hit(key) {
     const now = Date.now();
+    // Prune expired entries on every hit to prevent unbounded Map growth
+    // in long-running processes. O(n) but n is bounded by unique IPs in one window.
+    for (const [k, v] of this.store) {
+      if (now - v.start > this.windowMs) this.store.delete(k);
+    }
     const rec = this.store.get(key) || { count: 0, start: now };
     if (now - rec.start > this.windowMs) { rec.count = 0; rec.start = now; }
     rec.count += 1;

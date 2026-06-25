@@ -57,7 +57,10 @@ function requireAdmin(req, res, next) {
 }
 
 /* ---------- small validators ---------- */
-const isEmail = (s) => typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length <= 254;
+const isEmail = (s) =>
+  typeof s === 'string' &&
+  s.length >= 5 && s.length <= 254 &&
+  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z]{2,})+$/.test(s);
 const isNonEmpty = (s, max = 120) => typeof s === 'string' && s.trim().length > 0 && s.trim().length <= max;
 const isPassword = (s) => typeof s === 'string' && s.length >= 8 && s.length <= 128;
 const toNum = (v) => (typeof v === 'number' ? v : parseFloat(v));

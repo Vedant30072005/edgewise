@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analytics — Edgewise</title>
+<link rel="stylesheet" href="/app.css">
+<style>
+.analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; margin-top: 22px; }
+.metric-card { border: 1.5px solid var(--ink); border-radius: 2px; padding: 20px; background: var(--surface); }
+.metric-card .label { font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--ink-faint); margin-bottom: 10px; }
+.metric-card .value { font-size: 28px; font-weight: 700; font-family: var(--font-display); margin-bottom: 6px; }
+.metric-card .sublabel { font-size: 13px; color: var(--ink-soft); }
+.chart-container { border: 1.5px solid var(--ink); border-radius: 2px; background: var(--surface); padding: 20px; margin-top: 22px; }
+.distribution { display: flex; gap: 4px; align-items: flex-end; height: 120px; margin-top: 14px; }
+.bar { flex: 1; background: var(--ultra); min-height: 4px; border-radius: 1px; }
+.bar.loss { background: var(--loss); }
+.heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 14px; }
+.heatmap-cell { aspect-ratio: 1; border-radius: 2px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; }
+.heatmap-cell.cold { background: rgba(35, 35, 230, 0.2); }
+.heatmap-cell.cool { background: rgba(35, 35, 230, 0.4); }
+.heatmap-cell.warm { background: var(--ultra); }
+.heatmap-cell.hot { background: rgba(35, 35, 230, 1); }
+.heatmap-cell.profit { background: var(--win); }
+</style>
+</head>
+<body>
+
+<div class="verify-banner" id="verifyBanner" style="display:none">
+  <span>Verify your email to secure your account — check your inbox.</span>
+  <button id="resendVerify">Resend link</button>
+</div>
+
+<header class="nav">
+  <div class="nav__inner">
+    <a class="brand" href="/" aria-label="Edgewise home">
+      <svg viewBox="0 0 26 26" fill="none" aria-hidden="true"><rect x="1" y="1" width="24" height="24" stroke="#101019" stroke-width="2"/><path d="M4 19 L10 12 L14 15 L22 5" stroke="#2323E6" stroke-width="2.4" fill="none"/><circle cx="22" cy="5" r="2.4" fill="#2323E6"/></svg>
+      Edgewise
+    </a>
+    <nav class="nav__right" id="navRight" aria-label="Account">
+      <span class="nav__user" id="navUser"></span>
+      <a href="/app">Back to journal</a>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode"></button>
+      <button id="logoutBtn">Log out</button>
+    </nav>
+    <button class="nav__menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-expanded="false"></button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="page-head">
+    <div>
+      <p class="mono">Performance analytics</p>
+      <h1 class="display">The numbers.</h1>
+    </div>
+  </div>
+
+  <!-- Primary metrics -->
+  <div class="analytics-grid">
+    <div class="metric-card">
+      <div class="label">Total trades</div>
+      <div class="value" id="metric-trades">—</div>
+      <div class="sublabel" id="metric-trades-sublabel"></div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Win rate</div>
+      <div class="value" id="metric-winrate">—</div>
+      <div class="sublabel" id="metric-winrate-sublabel"></div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Avg trade (R)</div>
+      <div class="value" id="metric-expectancy">—</div>
+      <div class="sublabel">Expected value per trade</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Profit factor</div>
+      <div class="value" id="metric-profitfactor">—</div>
+      <div class="sublabel">Gross wins / gross losses</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Equity (R)</div>
+      <div class="value" id="metric-equity">—</div>
+      <div class="sublabel">Cumulative edge captured</div>
+    </div>
+    <div class="metric-card">
+      <div class="label">Largest drawdown (R)</div>
+      <div class="value" id="metric-maxdd">—</div>
+      <div class="sublabel">Peak to trough</div>
+    </div>
+  </div>
+
+  <!-- Streak analysis -->
+  <section class="panel">
+    <div class="panel__head"><span>Current streak</span></div>
+    <div class="panel__body">
+      <div class="analytics-grid" style="grid-template-columns: 1fr 1fr; margin-top: 0">
+        <div class="metric-card" style="border-color: var(--win)">
+          <div class="label">Win streak</div>
+          <div class="value" id="metric-win-streak">—</div>
+        </div>
+        <div class="metric-card" style="border-color: var(--loss)">
+          <div class="label">Loss streak</div>
+          <div class="value" id="metric-loss-streak">—</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Distribution analysis -->
+  <section class="panel">
+    <div class="panel__head"><span>Trade distribution — last 30 trades</span></div>
+    <div class="panel__body">
+      <div class="distribution" id="distributionChart"></div>
+      <p class="mono" style="font-size: 12px; color: var(--ink-faint); margin-top: 14px">Green = winning trades | Red = losing trades | Height = magnitude of R</p>
+    </div>
+  </section>
+
+  <!-- Monthly heatmap -->
+  <section class="panel">
+    <div class="panel__head"><span>Monthly returns heatmap</span></div>
+    <div class="panel__body">
+      <div class="heatmap" id="monthlyHeatmap"></div>
+      <p class="mono" style="font-size: 12px; color: var(--ink-faint); margin-top: 14px">Darker = higher returns (R) for that month</p>
+    </div>
+  </section>
+
+  <!-- Setup vs mood correlation -->
+  <div class="slices" style="margin-top: 22px">
+    <section class="panel" style="margin-top: 0">
+      <div class="panel__head"><span>Setup performance (last 30)</span></div>
+      <div class="panel__body" id="setupPerf"><div class="empty">Loading…</div></div>
+    </section>
+    <section class="panel" style="margin-top: 0">
+      <div class="panel__head"><span>Mood correlation (last 30)</span></div>
+      <div class="panel__body" id="moodPerf"><div class="empty">Loading…</div></div>
+    </section>
+  </div>
+
+</main>
+
+<script src="/shared.js"></script>
+<script>
+(async function init() {
+  // Initialize dark mode
+  const darkModePreference = localStorage.getItem('edgewise-dark-mode');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const shouldBeDark = darkModePreference === 'true' || (darkModePreference === null && prefersDark);
+  if (shouldBeDark) {
+    document.documentElement.setAttribute('data-dark-mode', '');
+  } else {
+    document.documentElement.setAttribute('data-light-mode', '');
+  }
+  
+  // Dark mode toggle
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const isDark = document.documentElement.hasAttribute('data-dark-mode');
+    if (isDark) {
+      document.documentElement.removeAttribute('data-dark-mode');
+      document.documentElement.setAttribute('data-light-mode', '');
+      localStorage.setItem('edgewise-dark-mode', 'false');
+    } else {
+      document.documentElement.removeAttribute('data-light-mode');
+      document.documentElement.setAttribute('data-dark-mode', '');
+      localStorage.setItem('edgewise-dark-mode', 'true');
+    }
+  });
+
+  // Mobile menu toggle
+  const menuToggle = document.getElementById('menuToggle');
+  const navRight = document.getElementById('navRight');
+  menuToggle.addEventListener('click', () => {
+    const isActive = menuToggle.classList.toggle('active');
+    navRight.classList.toggle('active');
+    menuToggle.setAttribute('aria-expanded', isActive);
+  });
+
+  let user;
+  try {
+    const res = await api.get('/api/auth/me');
+    user = res.user;
+    document.getElementById('navUser').textContent = user.name;
+  } catch { window.location.href = '/login'; return; }
+
+  // Load stats
+  const stats = await api.get('/api/trades/stats');
+  
+  // Populate metrics
+  document.getElementById('metric-trades').textContent = stats.totalTrades;
+  document.getElementById('metric-winrate').textContent = stats.winRate + '%';
+  document.getElementById('metric-winrate-sublabel').textContent = `${Math.ceil(stats.winRate * stats.totalTrades / 100)} wins`;
+  document.getElementById('metric-expectancy').textContent = stats.expectancy + 'R';
+  document.getElementById('metric-profitfactor').textContent = stats.profitFactor || '—';
+  document.getElementById('metric-equity').textContent = stats.netR + 'R';
+  document.getElementById('metric-maxdd').textContent = stats.maxDrawdownR + 'R';
+  
+  // Streak
+  document.getElementById('metric-win-streak').textContent = 
+    stats.streak.type === 'win' ? stats.streak.count + ' ✓' : '—';
+  document.getElementById('metric-loss-streak').textContent = 
+    stats.streak.type === 'loss' ? stats.streak.count + ' ✗' : '—';
+
+  // Distribution chart (last 30 trades)
+  const last30 = stats.curve.slice(Math.max(0, stats.curve.length - 31), -1);
+  const container = document.getElementById('distributionChart');
+  for (let i = 1; i < last30.length; i++) {
+    const changeR = last30[i] - last30[i - 1];
+    const bar = document.createElement('div');
+    bar.className = 'bar ' + (changeR >= 0 ? 'win' : 'loss');
+    bar.style.height = (Math.abs(changeR) * 12) + 'px';
+    container.appendChild(bar);
+  }
+
+  // Monthly heatmap
+  const heatmapContainer = document.getElementById('monthlyHeatmap');
+  if (stats.byMonth && stats.byMonth.length) {
+    const maxR = Math.max(...stats.byMonth.map(m => m.totalR));
+    stats.byMonth.slice(-12).forEach(m => {
+      const cell = document.createElement('div');
+      const normalized = m.totalR / maxR;
+      const intensity = m.totalR >= 0 ? 'profit' : (normalized > 0.75 ? 'hot' : normalized > 0.5 ? 'warm' : normalized > 0.25 ? 'cool' : 'cold');
+      cell.className = 'heatmap-cell ' + intensity;
+      cell.textContent = m.month.slice(5) + ' ' + m.totalR + 'R';
+      cell.title = `${m.month}: ${m.totalR}R over ${m.trades} trades`;
+      heatmapContainer.appendChild(cell);
+    });
+  }
+
+  // Setup performance
+  if (stats.bySetup && stats.bySetup.length) {
+    const setupHtml = stats.bySetup.slice(0, 5).map(s =>
+      `<div class="slice-row"><span class="mono">${s.key}</span><span>${s.totalR >= 0 ? '✓' : '✗'} ${s.totalR}R (${s.trades})</span></div>`
+    ).join('');
+    document.getElementById('setupPerf').innerHTML = setupHtml || '<div class="empty">No tagged setups</div>';
+  }
+
+  // Mood performance
+  if (stats.byMood && stats.byMood.length) {
+    const moodHtml = stats.byMood.map(m =>
+      `<div class="slice-row"><span class="mono">${m.key}</span><span>${m.totalR >= 0 ? '✓' : '✗'} ${m.totalR}R (${m.trades})</span></div>`
+    ).join('');
+    document.getElementById('moodPerf').innerHTML = moodHtml;
+  }
+
+  // Logout
+  document.getElementById('logoutBtn').addEventListener('click', logout);
+})();
+</script>
+</body>
+</html>
