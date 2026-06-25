@@ -297,7 +297,7 @@ router.get('/debrief', async (req, res) => {
   const [trades7, violations7] = await Promise.all([
     all(
       `SELECT trade_date, symbol, side, r_multiple, setup_tag, mood, notes FROM trades
-       WHERE user_id=$1 AND trade_date>=CURRENT_DATE - INTERVAL '6 days' ORDER BY trade_date ASC, id ASC`,
+       WHERE user_id=$1 AND trade_date::DATE >= CURRENT_DATE - INTERVAL '6 days' ORDER BY trade_date ASC, id ASC`,
       [req.user.id]
     ),
     all(
