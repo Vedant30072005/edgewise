@@ -133,12 +133,18 @@ router.post('/forgot-password', forgotLimiter, async (req, res) => {
   if (!isEmail(email)) return res.status(400).json({ error: 'Enter a valid email address.' });
   const user = await get('SELECT id, email, name FROM users WHERE LOWER(email) = LOWER($1)', [email]);
   if (user) {
-    const token = randomBytes(32).toString('hex');
-    const expires = Date.now() + 60 * 60 * 1000; // 1 hour
-    await run(
-      'UPDATE users SET password_reset_token=$1, password_reset_expires=$2 WHERE id=$3',
-      [token, expires, user.id]
+    const existing = await get(
+      'SELECT password_reset_token FROM users WHERE id=$1 AND password_reset_expires>$2',
+      [user.id, Date.now()]
     );
+    const token = existing?.password_reset_token ?? randomBytes(32).toString('hex');
+    if (!existing) {
+      const expires = Date.now() + 60 * 60 * 1000;
+      await run(
+        'UPDATE users SET password_reset_token=$1, password_reset_expires=$2 WHERE id=$3',
+        [token, expires, user.id]
+      );
+    }
     const resetUrl = `${appUrl()}/reset-password?token=${token}`;
     await sendMail({
       to: user.email,
