@@ -9,7 +9,7 @@ function renderStats(s) {
   set('sNet', s.totalTrades ? fmtR(s.netR) : '—', s.netR >= 0 ? 'win' : 'loss');
   set('sWin', s.totalTrades ? s.winRate + '%' : '—');
   set('sExp', s.totalTrades ? fmtR(s.expectancy) : '—', s.expectancy >= 0 ? 'win' : 'loss');
-  set('sDd', s.totalTrades ? '-' + s.maxDrawdownR.toFixed(2) + 'R' : '—', 'loss');
+  set('sDd', s.totalTrades ? (s.maxDrawdownR === 0 ? '0.00R' : '-' + s.maxDrawdownR.toFixed(2) + 'R') : '—', s.maxDrawdownR > 0 ? 'loss' : '');
   set('sPf', s.profitFactor != null ? s.profitFactor.toFixed(2) : '—');
   const str = s.streak;
   if (str && str.count > 0) {

@@ -71,7 +71,7 @@ function renderTable(lastStats, onRefresh) {
       <td class="mono">${t.side === 'long' ? 'LONG' : 'SHORT'}</td>
       <td class="mono">${t.entry_price} → ${t.exit_price}</td>
       <td class="mono">${t.quantity}</td>
-      <td class="mono ${t.pnl >= 0 ? 'win' : 'loss'}">${t.pnl >= 0 ? '+' : ''}${t.pnl}</td>
+      <td class="mono ${t.pnl >= 0 ? 'win' : 'loss'}">${t.pnl >= 0 ? '+' : ''}${Number(t.pnl).toFixed(2)}</td>
       <td class="mono ${t.r_multiple >= 0 ? 'win' : 'loss'}"><b>${fmtR(t.r_multiple)}</b></td>
       <td><span class="tag">${esc(t.setup_tag)}</span></td>
       <td><span class="tag tag--mood-${esc(t.mood)}">${esc(t.mood)}</span></td>

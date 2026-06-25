@@ -101,7 +101,7 @@ router.get('/', async (req, res) => {
   let p = 2;
   if (symbol) { where += ` AND symbol LIKE $${p++}`; params.push(`%${symbol.toString().trim().toUpperCase()}%`); }
   if (mood && MOODS.includes(mood)) { where += ` AND mood=$${p++}`; params.push(mood); }
-  if (setup) { where += ` AND setup_tag=$${p++}`; params.push(setup.toString().trim().toLowerCase()); }
+  if (setup) { where += ` AND setup_tag LIKE $${p++}`; params.push(`%${setup.toString().trim().toLowerCase()}%`); }
   if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) { where += ` AND trade_date>=$${p++}`; params.push(from); }
   if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) { where += ` AND trade_date<=$${p++}`; params.push(to); }
   if (notes) { where += ` AND notes LIKE $${p++}`; params.push(`%${notes.toString().trim()}%`); }
