@@ -67,6 +67,19 @@ app.use(express.json({ limit: '64kb' }));
 app.use(cookieParser());
 app.use(attachUser);
 
+/* ---------- Schema init (serverless-safe) ---------- */
+// Vercel imports this file as a module (require.main !== module), so the
+// initSchema() call inside the if-block at the bottom never runs on Vercel.
+// Cache the promise so it only executes once per cold start.
+let _schemaReady = null;
+function ensureSchema() {
+  if (!_schemaReady) _schemaReady = initSchema().then(() => seedAdmin());
+  return _schemaReady;
+}
+app.use('/api', async (req, res, next) => {
+  try { await ensureSchema(); next(); } catch (err) { next(err); }
+});
+
 /* ---------- API ---------- */
 app.use('/api/auth', authRoutes);
 app.use('/api/trades', tradeRoutes);
