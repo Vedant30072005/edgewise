@@ -1,63 +1,40 @@
-/**
- * Edgewise — app orchestrator (ES module entry point).
- *
- * This file is intentionally lean: it imports focused modules,
- * coordinates the boot sequence, and wires the top-level refresh loop.
- * Business logic lives in the imported modules.
- */
-import { api, logout }                         from './modules/api.js';
-import { toast, initDarkMode, initMobileNav }  from './modules/ui.js';
-import { renderStats, renderDebrief,
-         renderSlice, renderGuard }            from './modules/stats.js';
-import { renderCurve, drawCurve,
-         renderMonthlyBars }                   from './modules/charts.js';
-import { loadTrades, renderTable, renderTagList,
-         wireForm, wireFilters,
-         wireLoadMore, wireImport }            from './modules/trades.js';
+/* Edgewise — app orchestrator (plain script, loaded after module scripts) */
 
-/* ── shared state ─────────────────────────────────────────────── */
-let lastStats = null;
-let _pendingSettings  = {};
-let _pendingViolations = [];
+var lastStats = null;
+var _pendingSettings  = {};
+var _pendingViolations = [];
 
-/* ── loading skeleton ─────────────────────────────────────────── */
 function setLoading(on) {
   document.getElementById('statGrid')?.classList.toggle('loading', on);
   document.getElementById('tradeCount')?.classList.toggle('loading', on);
 }
 
-/* ── per-panel error boundary ─────────────────────────────────── */
-/**
- * Wraps a promise so a single panel failure never crashes the whole refresh.
- * Shows an inline error message in the target element instead of throwing.
- * @param {Promise}  promise   - The panel fetch/render promise
- * @param {string}   [elId]    - Optional DOM id to show error message in
- * @param {*}        fallback  - Value to resolve to on failure (default null)
- */
-function safePanel(promise, elId, fallback = null) {
-  return promise.catch(err => {
-    console.error(`[edgewise] Panel error${elId ? ` (${elId})` : ''}:`, err.message);
+function safePanel(promise, elId, fallback) {
+  if (fallback === undefined) fallback = null;
+  return promise.catch(function(err) {
+    console.error('[edgewise] Panel error' + (elId ? ' (' + elId + ')' : '') + ':', err.message);
     if (elId) {
       const el = document.getElementById(elId);
       if (el) el.innerHTML =
-        `<div class="empty" style="color:var(--loss)">Failed to load — <a href="#" onclick="location.reload()">refresh</a></div>`;
+        '<div class="empty" style="color:var(--loss)">Failed to load — <a href="#" onclick="location.reload()">refresh</a></div>';
     }
     return fallback;
   });
 }
 
-/* ── full page refresh ────────────────────────────────────────── */
 async function refresh() {
   setLoading(true);
   try {
-    // Fetch all panels in parallel; individual failures are contained.
-    const [, stats, , settings, violations] = await Promise.all([
+    const results = await Promise.all([
       safePanel(loadTrades(true)),
       safePanel(api.get('/api/trades/stats'), 'statGrid'),
       safePanel(api.get('/api/trades/debrief').then(renderDebrief), 'debriefBody'),
       safePanel(api.get('/api/settings')),
       safePanel(api.get('/api/trades/violations')),
     ]);
+    const stats      = results[1];
+    const settings   = results[3];
+    const violations = results[4];
 
     if (stats) {
       lastStats = stats;
@@ -70,7 +47,7 @@ async function refresh() {
       document.getElementById('tradeCount').textContent = lastStats.totalTrades + ' TRADES LOGGED';
     }
 
-    _pendingSettings  = settings?.settings  ?? _pendingSettings;
+    _pendingSettings   = settings?.settings   ?? _pendingSettings;
     _pendingViolations = violations?.violations ?? _pendingViolations;
 
     renderTable(lastStats, refresh);
@@ -80,7 +57,6 @@ async function refresh() {
   }
 }
 
-/* ── boot ─────────────────────────────────────────────────────── */
 (async function init() {
   initDarkMode();
   initMobileNav();
@@ -91,28 +67,25 @@ async function refresh() {
     user = res.user;
     document.getElementById('navUser').textContent = user.name;
     if (user.role === 'admin') document.getElementById('adminLink').style.display = '';
-  } catch { window.location.href = '/login'; return; }
+  } catch (e) { window.location.href = '/login'; return; }
 
   document.getElementById('fDate').value = new Date().toISOString().slice(0, 10);
 
-  /* Email verify banner */
   if (!user.email_verified) {
     document.getElementById('verifyBanner').style.display = '';
-    document.getElementById('resendVerify').addEventListener('click', async (btn) => {
-      btn.target.disabled = true; btn.target.textContent = 'Sent';
+    document.getElementById('resendVerify').addEventListener('click', async function(ev) {
+      ev.target.disabled = true; ev.target.textContent = 'Sent';
       try { await api.post('/api/auth/resend-verify', {}); toast('Verification email sent — check your inbox'); }
-      catch (e) { toast(e.message, true); btn.target.disabled = false; btn.target.textContent = 'Resend link'; }
+      catch (e) { toast(e.message, true); ev.target.disabled = false; ev.target.textContent = 'Resend link'; }
     });
   }
 
-  /* Post-verify redirect toast */
   if (new URLSearchParams(location.search).get('verified') === '1') {
-    toast('Email verified. ');
+    toast('Email verified.');
     history.replaceState(null, '', '/app');
   }
 
-  /* Risk guard save */
-  document.getElementById('guardSaveBtn').addEventListener('click', async () => {
+  document.getElementById('guardSaveBtn').addEventListener('click', async function() {
     const gErr = document.getElementById('guardErr');
     gErr.classList.remove('show');
     try {
@@ -126,17 +99,14 @@ async function refresh() {
     } catch (e) { gErr.textContent = e.message; gErr.classList.add('show'); }
   });
 
-  /* Logout */
   document.getElementById('logoutBtn').addEventListener('click', logout);
 
-  /* Wire trade form, filters, load-more, import */
   wireForm(refresh);
-  wireFilters(async () => { await loadTrades(true); renderTable(lastStats, refresh); });
-  wireLoadMore(async () => { await loadTrades(false); renderTable(lastStats, refresh); });
+  wireFilters(async function() { await loadTrades(true); renderTable(lastStats, refresh); });
+  wireLoadMore(async function() { await loadTrades(false); renderTable(lastStats, refresh); });
   wireImport(refresh);
 
-  /* Resize redraws charts */
-  window.addEventListener('resize', () => {
+  window.addEventListener('resize', function() {
     if (lastStats) {
       drawCurve(document.getElementById('curve'), lastStats.curve);
       renderMonthlyBars(lastStats.byMonth);

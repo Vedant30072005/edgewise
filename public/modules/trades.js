@@ -1,20 +1,15 @@
-/**
- * Edgewise — trades module.
- * Handles: trade table, trade form, filter controls, import, load-more.
- */
-import { fmtR, esc, toast } from './ui.js';
-import { api } from './api.js';
+/* Edgewise — trades (plain script, no ES module syntax) */
 
 const PAGE_SIZE = 200;
-export let trades = [];
-export let filteredTotal = 0;
-export const filters = { symbol: '', mood: '', setup: '', notes: '', from: '', to: '' };
+var trades = [];
+var filteredTotal = 0;
+const filters = { symbol: '', mood: '', setup: '', notes: '', from: '', to: '' };
 
-let editingId = null;
+var editingId = null;
 const f = (id) => document.getElementById(id);
 
 /* ── data loading ─────────────────────────────────────────────── */
-export async function loadTrades(reset = false) {
+async function loadTrades(reset) {
   if (reset) trades = [];
   const params = new URLSearchParams({ limit: PAGE_SIZE, offset: trades.length });
   if (filters.symbol) params.set('symbol', filters.symbol);
@@ -29,7 +24,7 @@ export async function loadTrades(reset = false) {
 }
 
 /* ── table ────────────────────────────────────────────────────── */
-export function renderTable(lastStats, onRefresh) {
+function renderTable(lastStats, onRefresh) {
   const hasAll = lastStats?.totalTrades > 0;
   const hasRows = trades.length > 0;
 
@@ -112,13 +107,13 @@ export function renderTable(lastStats, onRefresh) {
   }));
 }
 
-export function renderTagList(lastStats) {
+function renderTagList(lastStats) {
   const tags = (lastStats?.bySetup || []).map(s => s.key);
   document.getElementById('tagList').innerHTML = tags.map(t => `<option value="${esc(t)}">`).join('');
 }
 
 /* ── form ─────────────────────────────────────────────────────── */
-export function previewR() {
+function previewR() {
   const side = f('fSide').value === 'long' ? 1 : -1;
   const pnl = (parseFloat(f('fExit').value) - parseFloat(f('fEntry').value)) * parseFloat(f('fQty').value) * side;
   const risk = parseFloat(f('fRisk').value);
@@ -130,7 +125,7 @@ export function previewR() {
   } else el.textContent = '';
 }
 
-export function resetForm() {
+function resetForm() {
   ['fSymbol', 'fEntry', 'fExit', 'fQty', 'fRisk', 'fNotes'].forEach(id => f(id).value = '');
   f('fMood').value = 'neutral'; previewR();
   editingId = null;
@@ -138,8 +133,7 @@ export function resetForm() {
   document.getElementById('cancelEditBtn').style.display = 'none';
 }
 
-/* ── wire form events ─────────────────────────────────────────── */
-export function wireForm(onRefresh) {
+function wireForm(onRefresh) {
   ['fEntry', 'fExit', 'fQty', 'fRisk', 'fSide'].forEach(id => f(id).addEventListener('input', previewR));
 
   document.getElementById('cancelEditBtn').addEventListener('click', resetForm);
@@ -180,8 +174,7 @@ export function wireForm(onRefresh) {
   });
 }
 
-/* ── filter controls ─────────────────────────────────────────── */
-export function wireFilters(onApply) {
+function wireFilters(onApply) {
   f('ffSymbol').addEventListener('input',  e => { filters.symbol = e.target.value.trim(); onApply(); });
   f('ffMood').addEventListener('change',   e => { filters.mood   = e.target.value; onApply(); });
   f('ffSetup').addEventListener('input',   e => { filters.setup  = e.target.value.trim(); onApply(); });
@@ -197,8 +190,7 @@ export function wireFilters(onApply) {
   });
 }
 
-/* ── load-more ───────────────────────────────────────────────── */
-export function wireLoadMore(onLoadMore) {
+function wireLoadMore(onLoadMore) {
   document.getElementById('loadMoreBtn').addEventListener('click', async () => {
     const btn = document.getElementById('loadMoreBtn');
     btn.disabled = true; btn.textContent = 'Loading…';
@@ -207,8 +199,7 @@ export function wireLoadMore(onLoadMore) {
   });
 }
 
-/* ── import ───────────────────────────────────────────────────── */
-export function wireImport(onRefresh) {
+function wireImport(onRefresh) {
   document.getElementById('importToggle').addEventListener('click', () => {
     const sec = document.getElementById('importSection');
     const btn = document.getElementById('importToggle');

@@ -1,9 +1,6 @@
-/**
- * Edgewise — charts module.
- * Handles: equity curve canvas, monthly performance bars, resize listener.
- */
+/* Edgewise — charts (plain script, no ES module syntax) */
 
-export function renderCurve(curve, lastStats) {
+function renderCurve(curve) {
   const empty = curve.length < 2;
   document.getElementById('curveEmpty').style.display = empty ? '' : 'none';
   document.querySelector('.curve-wrap').style.display = empty ? 'none' : '';
@@ -12,7 +9,7 @@ export function renderCurve(curve, lastStats) {
   drawCurve(document.getElementById('curve'), curve);
 }
 
-export function drawCurve(canvas, curve) {
+function drawCurve(canvas, curve) {
   const ctx = canvas.getContext('2d');
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const rect = canvas.parentElement.getBoundingClientRect();
@@ -56,7 +53,7 @@ export function drawCurve(canvas, curve) {
   ctx.fillStyle = '#2323E6'; ctx.beginPath(); ctx.arc(X(N), Y(curve[N]), 4, 0, Math.PI * 2); ctx.fill();
 }
 
-export function renderMonthlyBars(byMonth) {
+function renderMonthlyBars(byMonth) {
   const panel = document.getElementById('monthlyPanel');
   if (!byMonth || byMonth.length < 2) { panel.style.display = 'none'; return; }
   panel.style.display = '';

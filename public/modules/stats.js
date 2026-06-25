@@ -1,10 +1,6 @@
-/**
- * Edgewise — stats module.
- * Handles: stats grid, weekly debrief, setup/mood slices, risk guard.
- */
-import { fmtR, esc } from './ui.js';
+/* Edgewise — stats (plain script, no ES module syntax) */
 
-export function renderStats(s) {
+function renderStats(s) {
   const set = (id, txt, cls) => {
     const el = document.getElementById(id);
     el.textContent = txt;
@@ -25,7 +21,7 @@ export function renderStats(s) {
   }
 }
 
-export function renderDebrief(d) {
+function renderDebrief(d) {
   document.getElementById('debriefMeta').textContent =
     d.trades ? `${d.trades} TRADES · ${fmtR(d.netR)} · ${d.winRate}% WIN` : 'NO TRADES THIS WEEK';
   const bits = [];
@@ -44,7 +40,7 @@ export function renderDebrief(d) {
     </div>`;
 }
 
-export function renderSlice(id, rows) {
+function renderSlice(id, rows) {
   const el = document.getElementById(id);
   if (!rows.length) { el.innerHTML = '<div class="empty">Needs logged trades.</div>'; return; }
   const maxAbs = Math.max(...rows.map(r => Math.abs(r.expectancy)), 0.01);
@@ -58,7 +54,7 @@ export function renderSlice(id, rows) {
     </div>`).join('');
 }
 
-export function renderGuard(s, violations) {
+function renderGuard(s, violations) {
   document.getElementById('gDaily').value = s.daily_loss_limit_r ?? '';
   document.getElementById('gMaxRisk').value = s.max_risk_amount ?? '';
   document.getElementById('gCooldown').value = s.cooldown_minutes ?? '';
